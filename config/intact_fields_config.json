@@ -1,0 +1,612 @@
+{
+  "company": "Intact",
+  "description": "Intact insurance JSON output format configuration",
+  "fields": {
+    "applicant_information": {
+      "required": true,
+      "description": "Applicant personal information",
+      "fields": {
+        "last_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the applicant's last name (surname). Priority: first check application form, if not found check other documents.",
+          "description": "Applicant's last name (surname)"
+        },
+        "first_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the applicant's first name. Priority: first check application form, if not found check other documents.",
+          "description": "Applicant's first name"
+        },
+        "gender": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract the applicant's gender. Priority: first check application form, if not found check other documents. Must match one of the options: Female, Male, or X.",
+          "description": "Applicant's gender",
+          "options": ["Female", "Male", "X"]
+        },
+        "date_of_birth": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Extract the applicant's date of birth. Priority: first check application form, if not found check other documents. Convert to YYYY-MM-DD format.",
+          "description": "Applicant's date of birth in YYYY-MM-DD format"
+        },
+        "marital_status": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract the applicant's marital status. Priority: first check application form, if not found check other documents. Must match one of the options: Divorced, Married, Single, or Widow.",
+          "description": "Applicant's marital status",
+          "options": ["Divorced", "Married", "Single", "Widow"]
+        }
+      }
+    },
+    "address": {
+      "required": true,
+      "description": "Applicant's address information",
+      "fields": {
+        "postal_code": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "description": "Postal code in Canadian format X9X9X9"
+        },
+        "full_address": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "description": "Full address information in format like '164 Hawthorn Ave, Stouffville, ON'"
+        }
+      }
+    },
+    "broker_information": {
+      "required": true,
+      "description": "Broker information",
+      "fields": {
+        "broker_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the broker number from the application form. The broker code may start with a capital letter (e.g., 'X40460', 'A12345'). If it starts with a capital letter, ignore that letter and extract only the numeric part. Output should be 5 digits (e.g., 'X40460' should become '40460').",
+          "description": "5-digit broker number (numeric part only, ignore leading capital letter if present)"
+        },
+        "edi_client_code": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the EDI client code from the application form. Look for 'Code:' label followed by the code value (e.g., 'Code: ALEE01' should extract 'ALEE01').",
+          "description": "EDI (Electronic Data Interchange) client code"
+        }
+      }
+    },
+    "term": {
+      "required": true,
+      "description": "Term information",
+      "fields": {
+        "policy_effective_date": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "description": "Policy effective date in DD-MM-YYYY format"
+        }
+      }
+    },
+    "risk": {
+      "required": true,
+      "description": "Risk information - array of vehicles. Extract ALL vehicles found in documents. Each element represents one vehicle.",
+      "type": "array",
+      "extraction_logic": "Extract ALL vehicles (risks) found in the documents. Each vehicle should be a separate element in the array. If only one vehicle is found, the array should contain one element. Each risk element should contain all the risk fields for that specific vehicle.",
+      "fields": {
+        "risk_type": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract the risk type from documents for THIS specific vehicle. If there is no clear evidence indicating a different vehicle type (ATV, ANT, CLA, MCY, MHO, SNO, PPT), default to 'PPV' (Private Passenger Vehicle).",
+          "description": "Risk type or vehicle type",
+          "options": ["ATV", "ANT", "CLA", "MCY", "MHO", "PPV", "SNO", "PPT"]
+        },
+        "serial_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the vehicle VIN (Vehicle Identification Number) for THIS specific vehicle from the quote document. VIN is typically 17 characters long.",
+          "description": "17-character serial number (Vehicle VIN)"
+        },
+        "condition_when_purchased_or_leased": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "description": "Condition of the vehicle when purchased or leased",
+          "options": ["New", "Used", "Demo Less than 5,000 KM", "Demo More than or Equal to 5,000 KM"]
+        },
+        "date_of_purchase_or_lease": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "description": "Date of purchase or lease in YYYY-MM-DD format"
+        },
+        "winter_tires": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "description": "Whether the vehicle has winter tires",
+          "options": ["Yes", "No"]
+        },
+        "unrepaired_damage": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "Extract from documents for THIS specific vehicle. If there is no clear evidence indicating unrepaired damage, default to 'No'.",
+          "description": "Whether there is unrepaired damage",
+          "options": ["Yes", "No"]
+        },
+        "vehicle_rebuilt": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "Extract from documents for THIS specific vehicle. If there is no clear evidence indicating the vehicle has been rebuilt, default to 'No'.",
+          "description": "Whether the vehicle has been rebuilt",
+          "options": ["Yes", "No"]
+        },
+        "vehicle_photos_received": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "Extract from documents for THIS specific vehicle. If there is no clear evidence indicating vehicle photos have been received, default to 'No'.",
+          "description": "Whether vehicle photos have been received",
+          "options": ["Yes", "No"]
+        },
+        "vehicle_modified_or_accessories": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "Extract from documents for THIS specific vehicle. If there is no clear evidence indicating the vehicle has been modified or has accessories, default to 'No'.",
+          "description": "Whether the vehicle has been modified or has accessories",
+          "options": ["Yes", "No"]
+        }
+      }
+    },
+    "interest": {
+      "required": true,
+      "description": "Interest and financing information",
+      "fields": {
+        "has_loan": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "Extract from documents whether the vehicle has a loan, interest, finance, or lease. IMPORTANT: If this field is 'No', then all other fields in the 'interest' section (type_of_interest, client_selection_type, company_name) should NOT be included in the output JSON.",
+          "description": "Whether the vehicle has a loan or interest or finance or lease",
+          "options": ["Yes", "No"]
+        },
+        "type_of_interest": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract from documents. If the arrangement is a 'lease', select 'Lessor'. For all other cases (loan, finance, lien, etc.), select 'Lienholder'. Only include this field if has_loan is 'Yes'.",
+          "description": "Type of interest for interested party",
+          "options": ["Lessor", "Lienholder"]
+        },
+        "client_selection_type": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "If a matching company name is found in the corporate list (see company_name logic), select 'Select from corporate list'. If no matching company is found, select 'Create a new party'. Only include this field if has_loan is 'Yes'.",
+          "description": "Select an option for client selection",
+          "options": ["Create a new party", "Select from corporate list"]
+        },
+        "company_name": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract the company name from documents. Match it to the corporate list using fuzzy matching (e.g., 'BMO' matches 'Bank of Montreal', 'TD bank' or 'TD finance' matches 'TD Auto Finance', 'RBC' matches 'Royal Bank of Canada'). If a match is found, use the exact name from the list. If no match is found, set client_selection_type to 'Create a new party' and output the actual company name found in documents (even if it's not in the list). Only include this field if has_loan is 'Yes'.",
+          "description": "Company name from corporate list",
+          "options": ["Acura Financial Services", "Alphera Financial Services", "Audi Finance Services", "Bank of Montreal", "Banque Nationale Du Canada", "Banque Royal Prets Auto", "BMW Financial Services", "CIBC", "Edenpark", "FCA Canada Inc.", "Fédération des Caisses Desjardins du Québec", "Ford Credit Canada", "General Bank Of Canada", "Genesis Finance", "GM Financial", "Honda Finance Services", "Hyundai Motor Finance", "IA Financement Auto", "Kia Finance", "Lendcare Capital Inc.", "Libro Credit Union", "Lincoln Automotive Financial Services", "Manulife Bank Of Canada", "Mercedes-Benz Financial Services", "Mini Financial Services Canada", "Nissan Canada Inc.", "Porsche Financial Services Canada", "Royal Bank of Canada", "Scotia Dealer Advantage", "Services Financiers Mini Cooper", "TD Auto Finance", "Toyota Credit Canada", "Tricor Lease Finance Corp.", "Volkswagen Credit Canada Inc."]
+        }
+      }
+    },
+    "driver": {
+      "required": true,
+      "description": "Driver information - array of drivers. Extract ALL drivers found in documents. Each element represents one driver.",
+      "type": "array",
+      "extraction_logic": "Extract ALL drivers found in the documents. Each driver should be a separate element in the array. If only one driver is found, the array should contain one element. Each driver element should contain all the driver fields for that specific driver.",
+      "fields": {
+        "student": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "description": "Whether THIS specific driver is a student",
+          "options": ["Yes", "No"]
+        },
+        "driver_training_certificate": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "description": "Whether THIS specific driver has a driver training certificate",
+          "options": ["Yes", "No"]
+        },
+        "licence_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "description": "THIS specific driver's licence number"
+        },
+        "licence_class": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract THIS specific driver's licence class from documents. IMPORTANT: Based on the selected licence_class, only include the corresponding date fields. For G-class licences: if licence_class is 'G1', only include g1_class_date_licensed; if licence_class is 'G2', include g1_class_date_licensed and g2_class_date_licensed (but NOT g_class_date_licensed); if licence_class is 'G', include all three: g1_class_date_licensed, g2_class_date_licensed, and g_class_date_licensed.",
+          "description": "THIS specific driver's licence class",
+          "options": ["A", "B", "C", "D", "E", "F", "G", "G1", "G2", "M", "M1", "M2"]
+        },
+        "g_class_date_licensed": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Extract the G Class date licensed for THIS specific driver. ONLY include this field if licence_class is 'G'. Do NOT include if licence_class is 'G1' or 'G2'.",
+          "description": "G Class - Date Licensed in DD-MM-YYYY format"
+        },
+        "g2_class_date_licensed": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Extract the G2 Class date licensed for THIS specific driver. Include this field if licence_class is 'G2' or 'G'. Do NOT include if licence_class is 'G1'.",
+          "description": "G2 Class - Date Licensed in DD-MM-YYYY format"
+        },
+        "g1_class_date_licensed": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Extract the G1 Class date licensed for THIS specific driver. Include this field if licence_class is 'G1', 'G2', or 'G'.",
+          "description": "G1 Class - Date Licensed in DD-MM-YYYY format"
+        },
+        "request_date_time": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "description": "MVR's Request Date/Time in DD-MM-YYYY format for THIS specific driver"
+        },
+        "insurance_history_report_status": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract from dash/autoplus documents for THIS specific driver. Check if the insurance history report is detected or has specific content. Select 'Not Found' if not detected in dash/autoplus, 'Not Ordered' if not ordered, 'Received' if received, or 'Ordered - Pending' if ordered but pending.",
+          "description": "Insurance history report status for THIS specific driver",
+          "options": ["Not Found", "Not Ordered", "Received", "Ordered - Pending"]
+        },
+        "insurance_history_report_request_date": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Extract the insurance history report request date for THIS specific driver. If not found in documents, use the same value as 'request_date_time' (MVR's Request Date/Time).",
+          "description": "Insurance History Report Request Date in DD-MM-YYYY format for THIS specific driver"
+        },
+        "convictions": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract from MVR documents for THIS specific driver. If convictions are found, analyze the conviction description in the MVR document and match it to the most appropriate conviction code from the options list. Each code represents a specific violation type (e.g., 'ALCAF' = 'Accompanying Driver - Fail or Refuse to Provide Breath Sample', 'CDR' = 'Careless Driving', 'SP50M' = 'Speeding - Less than 50 KM over Speed Limit'). Select the code that best matches the conviction description found in the MVR. If no convictions are found in the MVR, select 'No'.",
+          "description": "THIS specific driver's conviction type. Select 'No' if no convictions found.",
+          "options": ["No", "ALCAF", "ADFSL", "RLSNS", "BOHP", "BALFS", "BLDLS", "BLDPS", "BLDCL", "BLDIM", "BLDBL", "BLSWF", "BLORC", "BLEPH", "BLFRS", "BLFSS", "BLFTH", "BLFYR", "BLFYP", "BLIP", "BLIPM", "BLOEP", "BLPTU", "BLRBH", "BLUN", "BLUM", "BLWWO", "CDR", "ALCGA", "G1UH", "GDPH", "G1UQD", "G1EP", "GDFP", "G2EP", "LRLDU", "LRMUA", "LRRMN", "LRRMH", "LRRMW", "LRRMP", "LRCDL", "LRDUL", "FNNAC", "LRFSL", "LRICU", "LRPBR", "MUOIV", "M1MUH", "M1MPH", "MDWP", "CN", "CRB", "CDS", "DD", "DNB", "DLOS", "DOS", "DPS", "DPSES", "DPLCS", "DSS", "DTS", "DTSL", "DSV", "IOM2", "IOM1", "DUV", "DOCH", "DIPSB", "DPSBP", "GO", "DTSD", "DADFI", "DFPSS", "DFSCP", "DFSPS", "DFPSU", "PXV1", "PXV2", "DVO", "DIMLH", "DLC", "DSNDL", "DDP", "DLS", "DRUG5", "ALC", "DWDO", "ALCF", "FRSL", "FASBR", "FASBA", "FAH", "FCSI", "FDPC", "FGNI", "FIC", "FHPTA", "VE1", "FLBRC", "FOLL", "FOSCS", "FOSPS", "FOTSL", "FOTST", "FODRC", "FORSB", "FOSSB", "FOSBS", "FPDAL", "FPRI", "FRAA", "FRAPA", "FRACC", "FRDHP", "FSRO", "FSTS", "FTSCE", "FTSYR", "FTS5M", "FTSRC", "FTSSM", "FTSBI", "FTSBC", "FTSEV", "FTSP", "FTSPE", "FTSFS", "FTORL", "FYROW", "PX", "FSBA", "IP1", "FTC", "ALCGB", "IMP", "IDDH", "IDDHL", "IDFTR", "ILT", "IOVD", "IP", "IRT", "ISTSN", "VE", "IUBAL", "IUCL3", "IUHOL", "VE_WNDSHLD", "ALCMB", "MFS", "MAICP", "MMSLG", "NDLIC", "IOM", "NIC", "NOAEA", "NOLUD", "NWSIB", "INSG", "ALCNA", "NDCC", "ALCNF", "NDFSL", "DRUGND", "ODRCR", "ODMS", "OFYRW", "OISLT", "ONOV", "ONVDL", "ONDCR", "ONDES", "ONSSD", "OPMSV", "OSEMP", "OCMVI", "OMVNI", "IVU1", "OIEP", "OPCD", "PX1", "SB", "PCV", "PDWC", "PNDCR", "PUD", "PCH", "PUASE", "PVEC", "PFIM", "PDVCI", "FLH", "PUT", "RCS", "STN", "REUV", "RPLCS", "CGWCR", "SNDHH_MAJ", "SNDDS_MAJ", "SMWD", "SP50P", "SP60P", "SP50M", "SPVWP", "SSBLZ", "SSBRC", "SSBOL", "TWADV", "TLHIV", "UPOL", "UPOP", "IVU", "SD", "UM", "USBLS", "VDHMA", "VOWIC", "VGLC", "VMLC", "WOB", "WSBNT", "WSBNE", "WWOOW", "ALCYD", "DRUGYD"]
+        },
+        "licence_suspensions": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "Extract from documents for THIS specific driver. Default to 'No' unless there is clear evidence in the documents indicating that the driver has licence suspensions. Only select 'Yes' if there is explicit information about licence suspensions.",
+          "description": "Whether THIS specific driver has licence suspensions",
+          "options": ["Yes", "No"]
+        },
+        "lapse_in_insurance": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "Extract from documents for THIS specific driver. If 'Yes', then the 'lapse_in_insurance_description' field must also be included in the output.",
+          "description": "Whether there is a lapse in insurance for THIS specific driver",
+          "options": ["Yes", "No"]
+        },
+        "lapse_in_insurance_description": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract from documents for THIS specific driver. This field is only required if 'lapse_in_insurance' is 'Yes'. Select the most appropriate description for the insurance lapse from the options.",
+          "description": "Description of the insurance lapse for THIS specific driver",
+          "options": ["No Automobile", "Non-Payment", "Resulting from Conviction - Rateable"]
+        },
+        "insured_without_interruption_since": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "description": "Insured Without Interruption Since in YYYY-MM format for THIS specific driver"
+        },
+        "risk_type": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract from documents for THIS specific driver. Default to 'Private Passenger Vehicle' unless there is clear evidence indicating a different vehicle type (All terrain Vehicle, Antique, Classic, Motorcycle, Motorhome, Snowmobile, or Trailer). Only select a different option if there is explicit information about the vehicle type.",
+          "description": "Risk type or vehicle type for THIS specific driver",
+          "options": ["All terrain Vehicle", "Antique", "Classic", "Motorcycle", "Motorhome", "Private Passenger Vehicle", "Snowmobile", "Trailer"]
+        },
+        "previous_insurer": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract the previous insurer name from documents for THIS specific driver. Match it to the list using fuzzy matching - the match does not need to be exact, but should identify the same company (e.g., 'BMO' matches 'Bank of Montreal', 'TD bank' or 'TD finance' matches 'TD Meloche Monnex (Security National)' or 'TD General Insurance Company', 'RBC' matches 'Royal Bank of Canada'). If a match is found, use the exact name from the list. If no match is found and there is clearly no prior insurer, select 'No Prior Insurer'.",
+          "description": "Previous insurer name for THIS specific driver",
+          "options": ["Canadian Northern Shield Insurance Company", "Certas Direct Insurance Company", "TD Meloche Monnex (Security National)", "No Prior Insurer", "Abstainers Insurance Company", "ACE INA Insurance Company (for CIGNA)", "AIG Canada", "Alberta Motor Association Insurance Company", "Algoma Mutual Insurance Company", "Allianz Insurance Company of Canada", "Allianz Insurance Company of Canada (FA)", "Allstate Canada (FA)", "Allstate Insurance Company of Canada", "Alpina Insurance Company Limited", "Amherst Island Mutual Fire Insurance Company", "Anglo Canada General Insurance Company", "Ascentus Insurance Limited", "Atlantic Insurance Company Limited", "Aviva Canada (FA)", "Aviva Insurance Company of Canada", "AXA Insurance (Canada)", "Ayr Farmers Mutual Insurance Company", "Bay of Quinte Agricultural Mutual Fire Insurance Company", "Belairdirect", "Belairdirect/The Nordic Insurance", "Bertie and Clinton Mutual Insurance Company", "Blanshard Mutual Insurance Company", "Brant Mutual Insurance Company", "CAA Insurance Company (Ontario)", "Canada West Insurance Company", "Canadian Commerce Insurance Company", "Canadian Direct Insurance", "Canadian General Insurance Company", "Canadian General Insurance Company (FA)", "Canadian Indemnity", "Canadian Provincial Insurance Company", "Canadian Surety", "Caradoc Delaware Mutual Fire Insurance Company", "Cayuga Mutual Fire Insurance Company", "Certas Home & Auto Insurance Company", "CGU International Insurance (Plc CU)", "Chequers Insurance", "Chieftain Insurance Company", "Chubb Insurance Company of Canada", "Citadel General Assurance Company", "Coachman Insurance Company", "Compagnie d'assurance US Fire", "Constitution Insurance Company", "Continental Casualty Company", "Co-operators General (FA)", "Co-operators General Insurance Company", "Cornhill Insurance Company of Canada", "Coseco Insurance Company", "Culross Mutual Insurance Company", "Cumis General Insurance Company", "Desjardins Insurance", "Dominion of Canada General Insurance", "Dominion of Canada General Insurance (FA)", "Downie Mutual Fire Insurance Company", "Dufferin Mutual Insurance Company", "Dumfries Mutual Insurance Company", "East Williams Mutual Fire Insurance Company", "Echelon General Insurance Company", "Economical Mutual Insurance Company", "Ekfrid Mutual Insurance Company", "Elite Insurance Company", "Elma Mutual Insurance Company", "Employers Insurance Company of Wasau", "Erie Mutual Fire Insurance Company", "Farmers Mutual Fire Insurance Company", "Federated Insurance Company of Canada", "Federated Mutual Insurance Company", "Federation Insurance Company of Canada", "Fire Insurance Company of Canada", "First National Insurance Company", "GAN Canada", "GAN Canada Insurance Company (FA)", "General Accident", "General Insurance Company of America", "Germania Mutual Insurance", "Gibraltor General Insurance Company", "Glengarry Farmers' Mutual Fire Insurance Company", "Gore Mutual Insurance Company", "Grenville Mutual Insurance Company", "Grey and Bruce Mutual Insurance Company", "Guarantee Company of North America", "Halwell Mutual Insurance Company", "Hamilton Township Farmers Mutual Fire Insurance Company", "Hay Mutual Insurance Company", "Howard Mutual Fire Insurance Company", "Howick Mutual Insurance Company", "ICBC - Insurance Corporation of British Columbia", "Insurance Company of PEI", "Insurance Corporation of Newfoundland (FA)", "Insurance Corporation of Newfoundland Limited", "Intact Insurance", "Jevco Insurance Company", "Kemper Canada for Lumbermens", "Kent and Essex Mutual Insurance Company", "L'Union Canadienne Company d'Assurance", "Lambton Mutual Insurance Company", "Lanark Mutual Insurance Company", "Laurentian Casualty Group", "Lennox and Addington Mutual Fire Insurance Company", "Liberty Mutual Insurance", "Lloyds Underwriters Non Marine", "Lobo Mutual Insurance Company", "London Township Mutual Insurance Company", "Longroup Insurance", "Manitoba Public Insurance Corp", "Maplex General Insurance Company", "Markham General Insurance", "McGillivray Mutual Insurance Company", "McKillop Mutual Insurance Company", "Metro General Insurance Corporation Ltd", "Metropolitan Insurance Company", "Middlesex Mutual Company", "Millennium Insurance Corporation", "Missisquoi Insurance Company", "Motors Insurance", "Niagara Fire Insurance Company", "Nipponkoa Insurance Company Ltd", "Nordic Insurance Company of Canada (FA)", "Norfolk Mutual Insurance Company", "North Blenheim Mutual Insurance Company", "North Kent Mutual Fire Insurance Company", "North Waterloo Farmers Mutual Insurance", "Northbridge Personal Insurance Corporation", "Novex Insurance Company", "Ontario Mutual Insurance Association", "Optimum Insurance Company", "Optimum Societe d'Assurance Insurance", "Optimum West Insurance Company (BCI)", "Other Canada or U.S. Insurer not on the list", "Outside of Canada or U.S.", "Oxford Mutual Insurance Company", "Pafco Insurance Company", "Peace Hills General Insurance Company", "Peel and Maryborough Mutual Fire Insurance Company", "Peel Mutual Insurance Company", "Pembridge Insurance Company", "Personal Insurance Company of Canada", "Perth Insurance Company", "Pilot Insurance Company", "Portage la Praire Mutual Insurance Company", "Prescott Mutual Insurance Company", "Primmum Insurance Company", "Progressive Casualty Insurance Company", "RBC General Insurance Company", "Royal & Sun Alliance Facility", "Royal & Sun Alliance Insurance Company", "Safeco Insurance Company of America", "Saskatchewan Government Insurance", "Saskatchewan Mutual Insurance Company", "Scotia General Insurance Company", "Scottish & York Insurance Company Ltd", "Securite Nationale Company d'Assurance", "SGI Canada Insurance Services Ltd", "Sonnet Insurance Company", "South Easthope Mutual Insurance Company", "Sovereign General Insurance Company", "State Farm Mutual (FA)", "State Farm Mutual Automobile Insurance Company", "TD General Insurance Company", "TD Home and Auto Insurance Company", "TD Home and Auto Insurance Company (FA)", "The Commonwell Mutual Insurance Group", "Town and Country Mutual", "Townsend Farmers' Mutual Fire Insurance Company", "Traders General Insurance Company", "Tradition Mutual", "Trafalgar Insurance Company of Canada", "Travelers", "Trillium Mutual Insurance", "Unica Insurance", "Unifund Assurance - Facility", "Unifund Assurance Company", "United General Insurance Corporation", "United States Fidelity & Guarantee", "Usborne and Hibbert Mutual Fire Insurance Company", "Victoria Insurance Company of Canada", "Wabisa Mutual Fire Insurance Company", "Waterloo Insurance Company", "Wawanesa Mutual Insurance Company", "West Elgin Mutual Insurance Company", "West Wawanosh Mutual Insurance Company", "Western Assurance Company", "Westminster Mutual Insurance Company", "Yarmouth Mutual Fire Insurance Company", "Zenith Insurance Company", "Zurich Insurance Company"]
+        },
+        "expiry_date": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Extract the expiry date from the previous insurance information in documents for THIS specific driver. This is the end date of the previous insurance policy in DD-MM-YYYY format.",
+          "description": "Expiry date in DD-MM-YYYY format (from previous insurance) for THIS specific driver"
+        },
+        "previous_insurer_policy_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the policy number from the previous insurance information in documents for THIS specific driver.",
+          "description": "Previous insurer policy number (from previous insurance) for THIS specific driver"
+        },
+        "number_of_years_with_previous_insurer": {
+          "type": "number",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Calculate the number of years for THIS specific driver by subtracting the previous insurance effective date from the expiry_date. Use rounding up (ceiling) - if it's more than 3 years even by one day, it counts as 4 years. The result must be an integer. For example: if effective date is 2020-01-01 and expiry date is 2023-01-02, that's 3 years and 1 day, which rounds up to 4 years.",
+          "description": "Number of years with previous insurer (calculated, rounded up to integer) for THIS specific driver"
+        }
+      }
+    },
+    "assignment": {
+      "required": true,
+      "description": "Assignment information",
+      "fields": {
+        "type_of_use": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract from documents. If uncertain or no relevant information is found, default to 'Pleasure'. Only select other options (Business, Farmer Personal Use, Vocational) if there is clear evidence in the documents.",
+          "description": "Type of use for the vehicle",
+          "options": ["Business", "Farmer Personal Use", "Pleasure", "Vocational"]
+        },
+        "km_toward_work": {
+          "type": "number",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract kilometers driven toward work. Priority: first check the quote document, if not found check other documents.",
+          "description": "Kilometers driven toward work"
+        },
+        "annual_km": {
+          "type": "number",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract annual kilometers driven. Priority: first check the quote document, if not found check other documents.",
+          "description": "Annual kilometers driven"
+        },
+        "annual_business_km": {
+          "type": "number",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract annual business kilometers driven. IMPORTANT: If type_of_use is 'Pleasure', annual_business_km must always be 0. For other type_of_use values, extract from documents. Priority: first check the quote document, if not found check other documents. If the value cannot be found in any document, output 0. Do not make up or guess values.",
+          "description": "Annual business kilometers driven"
+        },
+        "automobile_rented_or_leased_to_others": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "If there is no clear evidence that the automobile is rented or leased to others, must select 'No'. Only select 'Yes' if there is explicit evidence in the documents.",
+          "description": "Whether the automobile is rented or leased to others",
+          "options": ["Yes", "No"]
+        },
+        "automobile_used_to_carry_passengers_for_compensation_or_hire": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "If there is no clear evidence that the automobile is used to carry passengers for compensation or hire, must select 'No'. Only select 'Yes' if there is explicit evidence in the documents.",
+          "description": "Whether the automobile is used to carry passengers for compensation or hire",
+          "options": ["Yes", "No"]
+        },
+        "automobile_carry_explosives_or_radioactive_materials": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "If there is no clear evidence that the automobile carries explosives or radioactive materials, must select 'No'. Only select 'Yes' if there is explicit evidence in the documents.",
+          "description": "Whether the automobile carries explosives or radioactive materials",
+          "options": ["Yes", "No"]
+        }
+      }
+    },
+    "claim": {
+      "required": true,
+      "description": "Claim information",
+      "fields": {
+        "has_claim": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "If 'No' is selected, all other fields in the 'claim' section (date_of_loss, at_fault, cause_of_loss, total_amount_paid, coverage, assigned_vehicle) should not be present in the output. Only extract other claim fields if 'Yes' is selected. If 'Yes', extract ALL claims found in the documents - there can be multiple claims, and each claim should have corresponding entries in all claim fields (arrays should have the same length, with index i representing claim i).",
+          "description": "Whether there is a claim",
+          "options": ["Yes", "No"]
+        },
+        "date_of_loss": {
+          "type": "array",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Only extract if has_claim is 'Yes'. Extract ALL dates of loss for ALL claims found in the documents. Each date should be in DD-MM-YYYY format. Output as an array, where each element corresponds to one claim. If there are multiple claims, this array should have multiple elements.",
+          "description": "Date of loss in DD-MM-YYYY format (array - one element per claim)"
+        },
+        "at_fault": {
+          "type": "array",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "Only extract if has_claim is 'Yes'. Extract whether each claim was at fault. Output as an array, where each element corresponds to one claim. The array length should match the number of claims found.",
+          "description": "Whether at fault (array - one element per claim)",
+          "options": ["Yes", "No"]
+        },
+        "cause_of_loss": {
+          "type": "array",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Only extract if has_claim is 'Yes'. Select the most appropriate cause of loss from the options for EACH claim found. Output as an array, where each element corresponds to one claim. The array length should match the number of claims found.",
+          "description": "Cause of loss (array - one element per claim)",
+          "options": ["Bicyclist or Pedestrian", "Collision with Animal", "Damage - Children or Animals", "Disobey Stop Sign", "Disobey Traffic Light", "Disobey Yield Sign", "Enter or Exit Driveway or Parking Lot", "Explosion", "Fire Damage, Partial", "Fire Damage, Total Loss", "Glass Breakage", "Hail", "Hail or Wind Carried Spray", "Hit and Run", "Improper Left Turn", "Improper Passing", "INS Wrong Way One Way Street", "Lane Change", "Lightning", "Lost Control", "Neutral Intersection", "Not Otherwise Classified", "Opening Door in Traffic", "Overtaking", "Parking Lot Accident", "Parking or Pulling from Parked", "Rear End", "Reversing or U-Turn", "Riot or Civil Commotion", "Sideswipe", "Single Vehicle Accident", "Theft, Partial Attempted", "Theft of Entire Vehicle", "Theft or Attempted Theft", "TP Wrong Way One Way Street", "Unknown or Not Applicable", "Vandalism", "Windstorm"]
+        },
+        "total_amount_paid": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Only extract if has_claim is 'Yes'. Extract the total amount paid for EACH claim found. Output as an array of numbers, where each element corresponds to one claim. The array length should match the number of claims found.",
+          "description": "Total amount paid in currency (array - one element per claim)"
+        },
+        "coverage": {
+          "type": "array",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Only extract if has_claim is 'Yes'. Select the coverage type for EACH claim found. Output as an array, where each element corresponds to one claim. The array length should match the number of claims found.",
+          "description": "Coverage type (array - one element per claim)",
+          "options": ["Accident Benefits", "Collision", "Comprehensive or Specified Perils", "DCPD", "Third Party Liability"]
+        },
+        "assigned_vehicle": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Only extract if has_claim is 'Yes'. Extract the vehicle information for EACH claim found (e.g., vehicle description, VIN, or vehicle identifier). Output as an array of strings, where each element corresponds to one claim. The array length should match the number of claims found.",
+          "description": "The vehicle that this claim is assigned to (array - one element per claim)"
+        }
+      }
+    },
+    "coverages": {
+      "required": true,
+      "description": "Coverages information",
+      "fields": {
+        "limit": {
+          "type": "number",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract from the quote document. Look for the value following 'Bodily Injury'. Convert abbreviations: 1m = 1000000, 2m = 2000000, etc. Select the matching value from the dropdown options.",
+          "description": "Limit amount in currency (typically found after 'Bodily Injury' in quote document)",
+          "options": [200000, 300000, 500000, 1000000, 2000000, 3000000, 4000000, 5000000]
+        },
+        "additional_coverages": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract coverages and their corresponding limit values from the quote document that are NOT already included in the claim section's coverage field. For each coverage found, output the coverage name and its limit value (e.g., 'Coverage Name: Value'). Exclude coverages that are already recorded in claim.coverage. IMPORTANT: Exclude 'Property Damage' (it is already represented by the 'limit' field and has the same value). Also exclude 'All Perils' (it is already displayed in the 'all_perils_or_collision_or_upset' field).",
+          "description": "Array of coverages and their limit values that are not included in the claim section. Excludes Property Damage (same as limit) and All Perils (already in all_perils_or_collision_or_upset field)."
+        },
+        "accident_benefits_standard_benefits": {
+          "type": "array",
+          "mode": "dropdown",
+          "required": true,
+          "multiple": true,
+          "extraction_logic": "Scan the quote document to identify which options are selected. Use fuzzy matching - if the document mentions something that is semantically the same as an option (even if the wording is slightly different), select that option. When a coverage option is found, also check if there is a numerical value following it (e.g., '50K' = 50000, '1M' = 1000000). If a value is found, output the option name followed by the value in the format 'Option Name: Value' (e.g., 'Increased AB - Income Replacement: 50000'). Convert abbreviations: K = thousands (50K = 50000), M = millions (1M = 1000000).",
+          "description": "Accident Benefits (Standard Benefits) optional coverage - can select multiple options. If a coverage has an associated limit value in the quote, include it in the format 'Option Name: Value'. Use fuzzy matching to identify similar coverage names.",
+          "options": ["Increased AB - Income Replacement", "Increased AB - Caregiver, Housekeeping & Home Maintenance", "Increased AB - Medical, Rehabilitation and Attendant Care", "Increased AB - Catastrophic Impairment $1,000,000", "Increased AB - Death & Funeral", "Increased AB - Dependant Care", "Increased AB - Indexation Benefits"]
+        },
+        "dcpd_deductible": {
+          "type": "number",
+          "mode": "dropdown",
+          "required": true,
+          "description": "Direct Compensation - Property Damage (DCPD) deductible amount",
+          "options": ["0", "300", "500"]
+        },
+        "all_perils_or_collision_or_upset": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "description": "ALL Perils OR Collision or Upset coverage type",
+          "options": ["Collision or Upset", "All Perils"]
+        },
+        "all_perils_or_collision_or_upset_deductible": {
+          "type": "number",
+          "mode": "free_text",
+          "required": true,
+          "description": "Deductible amount for ALL Perils OR Collision or Upset coverage"
+        },
+        "specified_perils_or_comprehensive": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "description": "Specified Perils OR Comprehensive coverage type",
+          "options": ["Comprehensive", "Specified Perils"]
+        },
+        "specified_perils_or_comprehensive_deductible": {
+          "type": "number",
+          "mode": "free_text",
+          "required": true,
+          "description": "Deductible amount for Specified Perils OR Comprehensive coverage"
+        },
+        "responsible_driver_guarantee": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "description": "Responsible Driver Guarantee",
+          "options": ["Yes", "No"]
+        },
+        "claims_advantage": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "description": "Claims Advantage",
+          "options": ["Yes", "No"]
+        },
+        "opcf_44r_family_protection_endorsement": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "description": "OPCF 44R - Family Protection Endorsement",
+          "options": ["Yes", "No"]
+        },
+        "section_optional_coverages": {
+          "type": "array",
+          "mode": "dropdown",
+          "required": true,
+          "multiple": true,
+          "extraction_logic": "Scan the quote document to identify which options are selected. Use fuzzy matching - if the document mentions something that is semantically the same as an option (even if the wording is slightly different), select that option. When a coverage option is found, also check if there is a numerical value following it (e.g., '#27 Liab to Unowned Veh. 50K' should record 'Liab to Unowned Veh.: 50000'). If a value is found, output the option name followed by the value in the format 'Option Name: Value' (e.g., 'OPCF 20 - Coverage for Transportation Replacement: 50000'). Convert abbreviations: K = thousands (50K = 50000), M = millions (1M = 1000000).",
+          "description": "Section optional coverages - can select multiple options. If a coverage has an associated limit value in the quote, include it in the format 'Option Name: Value'. Use fuzzy matching to identify similar coverage names.",
+          "options": ["Minor Conviction Protection - Principal", "OPCF 20 - Coverage for Transportation Replacement", "OPCF 13C - Restricting Glass Coverage", "OPCF 16 - Suspension of Coverage", "OPCF 28A - Excluded Driver", "Agreed Value Plus Endorsement", "OPCF 6A - Permission to Carry Paying Passengers", "OPCF 40 - Fire Deductible", "Roadside Assistance", "OPCF 31 - Non-owned Equipment", "OPCF 48 - Added Coverage to Offset Tort Deductibles", "OPCF 2 - Drive, Rent or Lease other Automobiles", "OPCF 3 - Drive Government Automobiles", "OPCF 8 - Property Damage Reimbursement", "OPCF 28 - Reducing Coverage for Named Persons"]
+        }
+      }
+    },
+    "insureds": {
+      "required": true,
+      "description": "Insureds information",
+      "fields": {
+        "automobile_insurance_cancelled_or_refused_in_last_3_years": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "If there is no clear evidence that automobile insurance was cancelled or refused in the last 3 years, must select 'No'. Only select 'Yes' if there is explicit evidence in the documents.",
+          "description": "Automobile Insurance Cancelled or Refused in Last 3 Years",
+          "options": ["Yes", "No"]
+        },
+        "ubi_consent": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Check the quote document for 'W0048 - MY DRIVE-ACTIVATION (NEW BUS ONLY) INCLUDED' or any MY DRIVE related content. Also check the application document for mentions of MY DRIVE. If MY DRIVE is found in either the quote or application, select 'Yes'. Otherwise, select 'No'.",
+          "description": "UBI Consent (Usage-Based Insurance)",
+          "options": ["No", "Not Requested", "Yes"]
+        }
+      }
+    },
+    "additional_info": {
+      "required": true,
+      "description": "Additional information",
+      "fields": {
+        "named_insureds_have_additional_policies_with_intact_financial_corporation": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "extraction_logic": "Always select 'No' for this field, regardless of document content.",
+          "description": "Do the Named Insureds have additional policies with Intact Financial Corporation",
+          "options": ["Yes", "No"]
+        }
+      }
+    }
+  }
+}

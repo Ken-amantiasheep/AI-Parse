@@ -1,0 +1,1090 @@
+{
+  "company": "CAA",
+  "description": "CAA insurance JSON output format configuration",
+  "version": "2.0",
+  "special_notes": {
+    "date_format": "Most date fields use MM/DD/YYYY format, except application_info.effective_date which uses YYYY-MM-DD",
+    "data_types": "All amount fields are strings, not numbers. Arrays always return [] when empty, objects return {} when empty",
+    "dynamic_keys": "vehicles_information uses vehicle model names as keys, drivers_information uses driver full names (FirstName LastName) as keys",
+    "field_priority": "address and phone fields prioritize quote document, fallback to application_info if not found"
+  },
+  "fields": {
+    "address": {
+      "required": false,
+      "description": "Customer address information - extracted from Quote PDF or Application PDF. Priority: Quote first, then Application",
+      "fields": {
+        "address": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract street address from Quote PDF. If not found or null, extract from Application PDF. Convert to uppercase.",
+          "description": "Street address (e.g., '123 MAIN ST')"
+        },
+        "city": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract city name from Quote PDF. If not found or null, extract from Application PDF. Convert to uppercase.",
+          "description": "City name (e.g., 'TORONTO')"
+        },
+        "province": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract province code from Quote PDF. If not found or null, extract from Application PDF. Use standard Canadian abbreviations.",
+          "description": "Province code (e.g., 'ON', 'BC', 'QC')",
+          "options": ["ON", "BC", "AB", "QC", "MB", "SK", "NS", "NB", "NL", "PE", "YT", "NT", "NU"]
+        },
+        "postal_code": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract postal code from Quote PDF. If not found or null, extract from Application PDF. Format: 'M1A 1A1' or 'M1A1A1'.",
+          "description": "Postal code in Canadian format (e.g., 'M1A 1A1')"
+        }
+      }
+    },
+    "phone": {
+      "required": false,
+      "description": "Customer phone number information. Priority: Quote first, then Application",
+      "fields": {
+        "type": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract phone type from Quote PDF. If not found or null, extract from Application PDF.",
+          "description": "Phone type",
+          "options": ["Home", "Mobile", "Work", "Fax"]
+        },
+        "number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract phone number from Quote PDF. If not found or null, extract from Application PDF. Format logic: if length = 10 digits: 'XXX-XXX-XXXX'; if length > 10 digits: 'XXX-XXX-XXXX xXXXX' (where XXXX is the extension digits).",
+          "description": "Phone number. Format: 'XXX-XXX-XXXX' for 10 digits, or 'XXX-XXX-XXXX xXXXX' for numbers with extension (where XXXX is the extension digits)"
+        }
+      }
+    },
+    "policy_information": {
+      "required": false,
+      "description": "Policy basic information - extracted from Policy Information section of Quote PDF",
+      "fields": {
+        "property_policy_type": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract property policy type from Quote PDF Policy Information section. Examples: 'Combined Policy / Multi-Line', 'Homeowners'.",
+          "description": "Property policy type"
+        },
+        "property_carrier": {
+          "type": "string",
+          "mode": "radio",
+          "required": false,
+          "extraction_logic": "Extract whether property insurance exists from Quote PDF. Default to 'No' if not found.",
+          "description": "Whether property insurance exists",
+          "options": ["Yes", "No"]
+        },
+        "property_policy_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract property policy number from Quote PDF.",
+          "description": "Property policy number"
+        },
+        "property_policy_date": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract property policy date or term from Quote PDF. Examples: '12 Months'.",
+          "description": "Property policy date or term (e.g., '12 Months')"
+        },
+        "occupied_since": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract occupied since information from Quote PDF. Examples: '5 Years'.",
+          "description": "Occupied since (e.g., '5 Years')"
+        },
+        "policy_discount": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract policy discount type from Quote PDF.",
+          "description": "Policy discount type"
+        },
+        "all_carriers": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract all carriers information from Quote PDF. Examples: 'All Carriers'.",
+          "description": "All insurance carriers"
+        },
+        "company_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract company name from Quote PDF.",
+          "description": "Company name"
+        },
+        "term_length": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract term length from Quote PDF.",
+          "description": "Policy term length"
+        }
+      }
+    },
+    "applicant_information": {
+      "required": true,
+      "description": "Applicant (primary insured) information. All name fields are automatically converted to uppercase.",
+      "fields": {
+        "salutation": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract salutation from Quote PDF or Application PDF. Convert to uppercase. Examples: 'MR', 'MRS', 'MS', 'DR'.",
+          "description": "Salutation (e.g., 'MR', 'MRS', 'MS', 'DR')",
+          "options": ["MR", "MRS", "MS", "MISS", "DR", "PROF", "REV"]
+        },
+        "first_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract applicant's first name from Quote PDF or Application PDF. Convert to uppercase. This is a required field.",
+          "description": "First name (required, automatically converted to uppercase)"
+        },
+        "middle_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract applicant's middle name from Quote PDF or Application PDF. Convert to uppercase.",
+          "description": "Middle name (automatically converted to uppercase)"
+        },
+        "last_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract applicant's last name from Quote PDF or Application PDF. Convert to uppercase. This is a required field.",
+          "description": "Last name (required, automatically converted to uppercase)"
+        },
+        "suffix": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract suffix from Quote PDF or Application PDF. Convert to uppercase. Examples: 'JR', 'SR', 'III'.",
+          "description": "Suffix (e.g., 'JR', 'SR', 'III')",
+          "options": ["JR", "SR", "II", "III", "IV", "V"]
+        }
+      }
+    },
+    "coapplicant_information": {
+      "required": true,
+      "description": "Co-applicant (co-insured) information. This object always exists. If no co-applicant, all fields are null but object is not null.",
+      "fields": {
+        "salutation": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract co-applicant's salutation from Quote PDF or Application PDF. Convert to uppercase. If no co-applicant found, return null.",
+          "description": "Salutation",
+          "options": ["MR", "MRS", "MS", "MISS", "DR", "PROF", "REV"]
+        },
+        "first_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract co-applicant's first name from Quote PDF or Application PDF. Convert to uppercase. If no co-applicant found, return null.",
+          "description": "First name"
+        },
+        "middle_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract co-applicant's middle name from Quote PDF or Application PDF. Convert to uppercase. If no co-applicant found, return null.",
+          "description": "Middle name"
+        },
+        "last_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract co-applicant's last name from Quote PDF or Application PDF. Convert to uppercase. If no co-applicant found, return null.",
+          "description": "Last name"
+        },
+        "suffix": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract co-applicant's suffix from Quote PDF or Application PDF. Convert to uppercase. If no co-applicant found, return null.",
+          "description": "Suffix",
+          "options": ["JR", "SR", "II", "III", "IV", "V"]
+        }
+      }
+    },
+    "vehicle_list": {
+      "required": true,
+      "description": "Vehicle list - array of vehicle model names in order. Always exists, returns empty array [] if no vehicles.",
+      "type": "array",
+      "extraction_logic": "Extract ALL vehicle model names from Quote PDF in order. Create an array of strings. Each string is a complete vehicle model name (e.g., '2019 NISSAN KICKS S 4DR 2WD'). Always return an array, even if empty.",
+      "example": "['2019 NISSAN KICKS S 4DR 2WD', '2020 TOYOTA CAMRY']"
+    },
+    "vehicles_information": {
+      "required": true,
+      "description": "Vehicle detailed information - object with vehicle model names as keys. Each vehicle model name is a key, and the value contains all vehicle details.",
+      "type": "object",
+      "key_format": "Vehicle model name (case-sensitive, must match exactly)",
+      "extraction_logic": "Extract ALL vehicles from Quote PDF. For each vehicle, use the complete vehicle model name as the key. Extract all vehicle details for that specific vehicle.",
+      "fields": {
+        "model_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract vehicle model name for THIS specific vehicle. This should match the key used for this vehicle in vehicles_information.",
+          "description": "Vehicle model name (same as the key)"
+        },
+        "model_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract vehicle model number from parentheses for THIS specific vehicle. Example: '189800'.",
+          "description": "Vehicle model number (extracted from parentheses)"
+        },
+        "vehicle_type": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract vehicle type for THIS specific vehicle. Examples: 'Private Passenger', 'Commercial'.",
+          "description": "Vehicle type (e.g., 'Private Passenger', 'Commercial')"
+        },
+        "vin_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract VIN number for THIS specific vehicle. VIN should be 17 characters long.",
+          "description": "Vehicle Identification Number (VIN) - 17 characters"
+        },
+        "body_style": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract body style for THIS specific vehicle. Examples: 'SUV - Small and Medium (Hard Top)', 'Sedan'.",
+          "description": "Body style"
+        },
+        "fuel_type": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract fuel type for THIS specific vehicle.",
+          "description": "Fuel type",
+          "options": ["Gasoline", "Diesel", "Electric", "Hybrid", "Plug-in Hybrid"]
+        },
+        "hybrid": {
+          "type": "string",
+          "mode": "radio",
+          "required": false,
+          "extraction_logic": "Extract whether THIS specific vehicle is hybrid. Default to 'No' if not found.",
+          "description": "Whether vehicle is hybrid",
+          "options": ["Yes", "No"]
+        },
+        "primary_use": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract primary use for THIS specific vehicle. Examples: 'Pleasure', 'Business', 'Commute'.",
+          "description": "Primary use (e.g., 'Pleasure', 'Business', 'Commute')",
+          "options": ["Pleasure", "Business", "Commute", "Farm Use"]
+        },
+        "annual_km": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract annual kilometers for THIS specific vehicle. Return as string.",
+          "description": "Annual kilometers (string type)"
+        },
+        "business_km": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract business kilometers for THIS specific vehicle. Return as string.",
+          "description": "Business kilometers (string type)"
+        },
+        "daily_km": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract daily kilometers for THIS specific vehicle. Return as string.",
+          "description": "Daily kilometers (string type)"
+        },
+        "garaging_location": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract garaging location for THIS specific vehicle. Format: city and postal code, e.g., 'TORONTO M1A1A1'.",
+          "description": "Garaging location (city and postal code)"
+        },
+        "single_vehicle_MVD": {
+          "type": "string",
+          "mode": "radio",
+          "required": false,
+          "extraction_logic": "Extract single vehicle MVD status for THIS specific vehicle. Default to 'No' if not found.",
+          "description": "Single vehicle MVD",
+          "options": ["Yes", "No"]
+        },
+        "leased": {
+          "type": "string",
+          "mode": "radio",
+          "required": false,
+          "extraction_logic": "Extract whether THIS specific vehicle is leased. Default to 'No' if not found.",
+          "description": "Whether vehicle is leased",
+          "options": ["Yes", "No"]
+        },
+        "cylinders": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract number of cylinders for THIS specific vehicle. Examples: '4', '6', '8'.",
+          "description": "Number of cylinders (e.g., '4', '6', '8')"
+        },
+        "anti_theft_device_type": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract anti-theft device type for THIS specific vehicle.",
+          "description": "Anti-theft device type"
+        },
+        "anti_theft_manufacturer": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract anti-theft device manufacturer for THIS specific vehicle.",
+          "description": "Anti-theft device manufacturer"
+        },
+        "anti_theft_engraving": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract anti-theft device engraving for THIS specific vehicle.",
+          "description": "Anti-theft device engraving"
+        },
+        "purchase_condition": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract purchase condition for THIS specific vehicle. Examples: 'New', 'Used'.",
+          "description": "Purchase condition (e.g., 'New', 'Used')",
+          "options": ["New", "Used", "Demo"]
+        },
+        "purchase_date": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract purchase date for THIS specific vehicle. Format: MM/DD/YYYY.",
+          "description": "Purchase date in MM/DD/YYYY format"
+        },
+        "km_at_purchase": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract kilometers at purchase for THIS specific vehicle. Return as string.",
+          "description": "Kilometers at purchase (string type)"
+        },
+        "list_price_new": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract list price new for THIS specific vehicle. Return as string (amount type).",
+          "description": "List price new (string type, amount)"
+        },
+        "purchase_price": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract purchase price for THIS specific vehicle. Return as string (amount type).",
+          "description": "Purchase price (string type, amount)"
+        },
+        "winter_tires": {
+          "type": "string",
+          "mode": "radio",
+          "required": false,
+          "extraction_logic": "Extract winter tires status for THIS specific vehicle. Default to 'No' if not found.",
+          "description": "Winter tires",
+          "options": ["Yes", "No"]
+        },
+        "parking_at_night": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract parking at night location for THIS specific vehicle. Examples: 'Private Garage', 'Street'.",
+          "description": "Parking at night location (e.g., 'Private Garage', 'Street')"
+        },
+        "drivers": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract drivers associated with THIS specific vehicle. Format: array of strings with salutation, full name, and relationship code. Example: ['MRS DAOYING GE (Prn)', 'MR JOHN DOE (Occ)']. Relationship codes: (Prn) = Principal, (Occ) = Occasional, (Sec) = Secondary, (Exc) = Excluded. Always return an array, even if empty [].",
+          "description": "Drivers associated with this vehicle (array of strings with format: 'SALUTATION FIRSTNAME LASTNAME (RELATIONSHIP_CODE)')",
+          "always_array": true
+        }
+      }
+    },
+    "driver_list": {
+      "required": true,
+      "description": "Driver list - array of driver full names in order. Always exists, returns empty array [] if no drivers.",
+      "type": "array",
+      "extraction_logic": "Extract ALL driver full names from Quote PDF in order. Format: 'FirstName LastName' (space between first and last name, automatically converted to uppercase). Create an array of strings. Always return an array, even if empty.",
+      "example": "['DAOYING GE', 'JOHN DOE']"
+    },
+    "drivers_information": {
+      "required": true,
+      "description": "Driver detailed information - object with driver full names as keys. Each driver full name (FirstName LastName) is a key, and the value contains all driver details.",
+      "type": "object",
+      "key_format": "Driver full name: 'FirstName LastName' (space between, automatically converted to uppercase, no salutation)",
+      "extraction_logic": "Extract ALL drivers from Quote PDF, MVR PDFs, and Application PDF. For each driver, use 'FirstName LastName' (uppercase, no salutation) as the key. Extract all driver details for that specific driver.",
+      "fields": {
+        "first_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract THIS specific driver's first name. Convert to uppercase.",
+          "description": "First name (automatically converted to uppercase)"
+        },
+        "last_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract THIS specific driver's last name. Convert to uppercase.",
+          "description": "Last name (automatically converted to uppercase)"
+        },
+        "date_of_birth": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's date of birth. Format: MM/DD/YYYY.",
+          "description": "Date of birth in MM/DD/YYYY format"
+        },
+        "marital_status": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's marital status. Examples: 'Married', 'Single', 'Divorced'.",
+          "description": "Marital status (e.g., 'Married', 'Single', 'Divorced')",
+          "options": ["Married", "Single", "Divorced", "Widowed", "Separated", "Common Law"]
+        },
+        "gender": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's gender.",
+          "description": "Gender",
+          "options": ["Male", "Female"]
+        },
+        "relationship_to_applicant": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's relationship to applicant. Examples: 'Applicant', 'Spouse', 'Child'.",
+          "description": "Relationship to applicant (e.g., 'Applicant', 'Spouse', 'Child')"
+        },
+        "driver_training": {
+          "type": "string",
+          "mode": "radio",
+          "required": false,
+          "extraction_logic": "Extract whether THIS specific driver has driver training. Default to 'No' if not found.",
+          "description": "Whether driver has training",
+          "options": ["Yes", "No"]
+        },
+        "driver_training_date": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's driver training date. Format: MM/DD/YYYY.",
+          "description": "Driver training date in MM/DD/YYYY format"
+        },
+        "out_of_province_country_driver": {
+          "type": "string",
+          "mode": "radio",
+          "required": false,
+          "extraction_logic": "Extract whether THIS specific driver is out of province/country driver. Default to 'No' if not found.",
+          "description": "Out of province/country driver",
+          "options": ["Yes", "No"]
+        },
+        "driver_licence_class": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's licence class. Examples: 'G', 'G2', 'G1', 'M'.",
+          "description": "Driver licence class (e.g., 'G', 'G2', 'G1', 'M')",
+          "options": ["G", "G1", "G2", "M", "M1", "M2", "A", "B", "C", "D", "E", "F"]
+        },
+        "date_G": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's G class licence date. Format: MM/DD/YYYY. Only include if driver_licence_class is 'G'.",
+          "description": "G class licence date in MM/DD/YYYY format"
+        },
+        "date_G2": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's G2 class licence date. Format: MM/DD/YYYY. Include if driver_licence_class is 'G2' or 'G'.",
+          "description": "G2 class licence date in MM/DD/YYYY format"
+        },
+        "date_G1": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's G1 class licence date. Format: MM/DD/YYYY. Include if driver_licence_class is 'G1', 'G2', or 'G'.",
+          "description": "G1 class licence date in MM/DD/YYYY format"
+        },
+        "driver_licence_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's licence number.",
+          "description": "Driver licence number"
+        },
+        "licence_province": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's licence province. Use standard Canadian abbreviations.",
+          "description": "Licence province (e.g., 'ON', 'BC', 'QC')",
+          "options": ["ON", "BC", "AB", "QC", "MB", "SK", "NS", "NB", "NL", "PE", "YT", "NT", "NU"]
+        },
+        "occupation": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's occupation. Examples: 'Retired', 'Engineer', 'Student'.",
+          "description": "Occupation (e.g., 'Retired', 'Engineer', 'Student')"
+        },
+        "date_insured": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's date insured. Format: MM/DD/YYYY. IMPORTANT: If extracted value does not match MM/DD/YYYY format (validated by string_is_m_d_y_format function), return null.",
+          "description": "Date insured in MM/DD/YYYY format. Returns null if format validation fails."
+        },
+        "current_carrier": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's current insurance carrier.",
+          "description": "Current insurance carrier"
+        },
+        "date_with_company": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's date with company. Format: MM/DD/YYYY.",
+          "description": "Date with company in MM/DD/YYYY format"
+        },
+        "brokerage_insured": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's brokerage insured date. Format: MM/DD/YYYY.",
+          "description": "Brokerage insured date in MM/DD/YYYY format"
+        },
+        "date_owner_principal": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's date owner/principal. Format: MM/DD/YYYY.",
+          "description": "Date owner/principal in MM/DD/YYYY format"
+        },
+        "applicant_lives_with_parents": {
+          "type": "string",
+          "mode": "radio",
+          "required": false,
+          "extraction_logic": "Extract whether applicant lives with parents for THIS specific driver. Default to 'No' if not found.",
+          "description": "Whether applicant lives with parents",
+          "options": ["Yes", "No"]
+        },
+        "student_away_at_school": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract student away at school information for THIS specific driver.",
+          "description": "Student away at school"
+        },
+        "retired": {
+          "type": "string",
+          "mode": "radio",
+          "required": false,
+          "extraction_logic": "Extract whether THIS specific driver is retired. Default to 'No' if not found.",
+          "description": "Whether driver is retired",
+          "options": ["Yes", "No"]
+        },
+        "other_licence_class": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's other licence class.",
+          "description": "Other licence class"
+        },
+        "other_licence_date": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's other licence date. Format: MM/DD/YYYY.",
+          "description": "Other licence date in MM/DD/YYYY format"
+        },
+        "claims": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract ALL claims for THIS specific driver from Quote PDF and AP Quote PDFs. Merge claims from all sources. Each claim is an object. Always return an array, even if empty []. All amount fields (tp/bi, tp/pd$, ab$, coll$, other_pd$) are strings, not numbers.",
+          "description": "Claims array - always exists, returns empty array [] if no claims",
+          "always_array": true,
+          "item_fields": {
+            "description": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Claim description (e.g., 'Non-resp Direct Compensation', 'At Fault Collision')"
+            },
+            "date": {
+              "type": "string",
+              "mode": "date",
+              "required": false,
+              "description": "Claim date in MM/DD/YYYY format"
+            },
+            "charge": {
+              "type": "string",
+              "mode": "radio",
+              "required": false,
+              "description": "Whether at fault",
+              "options": ["Yes", "No"]
+            },
+            "vehicle_involved": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Vehicle model name involved in claim"
+            },
+            "tp/bi": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Third party bodily injury amount (string type)"
+            },
+            "tp/pd$": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Third party property damage amount (string type, e.g., '5000')"
+            },
+            "ab$": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Accident benefits amount (string type)"
+            },
+            "coll$": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Collision amount (string type)"
+            },
+            "other_pd$": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Other property damage amount (string type)"
+            }
+          }
+        },
+        "convictions": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract ALL convictions for THIS specific driver from Quote PDF and MVR PDFs. Merge convictions from all sources. Each conviction is an object. Always return an array, even if empty [].",
+          "description": "Convictions array - always exists, returns empty array [] if no convictions",
+          "always_array": true,
+          "item_fields": {
+            "description": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Conviction description (e.g., 'Speeding', 'Careless Driving')"
+            },
+            "date": {
+              "type": "string",
+              "mode": "date",
+              "required": false,
+              "description": "Conviction date in MM/DD/YYYY format"
+            },
+            "km/h": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Speed over limit in km/h"
+            },
+            "severity": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Severity level"
+            }
+          }
+        },
+        "suspensions": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract ALL suspensions for THIS specific driver. Each suspension is an object. Always return an array, even if empty [].",
+          "description": "Suspensions array - always exists, returns empty array [] if no suspensions",
+          "always_array": true,
+          "item_fields": {
+            "description": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Suspension description (e.g., 'Medical Suspension', 'Administrative Suspension')"
+            },
+            "date": {
+              "type": "string",
+              "mode": "date",
+              "required": false,
+              "description": "Suspension date in MM/DD/YYYY format"
+            },
+            "duration_months": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Suspension duration in months (string type)"
+            },
+            "re_instate_date": {
+              "type": "string",
+              "mode": "date",
+              "required": false,
+              "description": "Reinstatement date in MM/DD/YYYY format"
+            }
+          }
+        },
+        "lapses": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract ALL lapses for THIS specific driver. Each lapse is an object. Always return an array, even if empty [].",
+          "description": "Lapses array - always exists, returns empty array [] if no lapses",
+          "always_array": true,
+          "item_fields": {
+            "description": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Lapse description (e.g., 'No Vehicle Hence No Insurance Required')"
+            },
+            "date": {
+              "type": "string",
+              "mode": "date",
+              "required": false,
+              "description": "Lapse date in MM/DD/YYYY format"
+            },
+            "duration_months": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Lapse duration in months (string type)"
+            },
+            "re_instate_date": {
+              "type": "string",
+              "mode": "date",
+              "required": false,
+              "description": "Reinstatement date in MM/DD/YYYY format"
+            }
+          }
+        },
+        "vehicles": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "This field is automatically populated by mapDriversToVehicles function based on vehicles_information.drivers fields. Contains array of vehicle model names associated with THIS specific driver. Vehicle model names must exactly match keys in vehicles_information (case-sensitive). Always return an array, even if empty [].",
+          "description": "Vehicles associated with this driver (array of vehicle model name strings)",
+          "always_array": true
+        }
+      }
+    },
+    "carrier_information": {
+      "required": false,
+      "description": "Carrier information - extracted from Carrier section of Quote PDF. If multiple carriers found, extract only the first one. If no carrier found, return null.",
+      "fields": {
+        "carrier_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract carrier name from Quote PDF Carrier section. If multiple carriers found, extract only the first one. Examples: 'CNA Insurance COMPANY', 'Intact Insurance'.",
+          "description": "Carrier name (string type, e.g., 'CNA Insurance COMPANY', 'Intact Insurance')"
+        },
+        "annual_premium": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract annual premium from Quote PDF Carrier section. Format as string: '$X,XXX.XX'. Example: '$1,558.00'.",
+          "description": "Annual premium (string type, format: '$X,XXX.XX', e.g., '$1,558.00')"
+        },
+        "total_premium": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract total premium from Quote PDF Carrier section. Format as string: '$X,XXX.XX'. Example: '$1,558.00'.",
+          "description": "Total premium (string type, format: '$X,XXX.XX', e.g., '$1,558.00')"
+        }
+      }
+    },
+    "discounts_information": {
+      "required": true,
+      "description": "Discount information - grouped by vehicle. Object with vehicle model names as keys. If no discounts found, return empty object {}.",
+      "type": "object",
+      "key_format": "Vehicle model name (must exactly match vehicles_information keys, case-sensitive)",
+      "extraction_logic": "Extract discount information from Quote PDF, grouped by vehicle. For each vehicle, use vehicle model name as key. Discount structure has two variants: if discount text contains '=' symbol, include both percentage and driver_covered; if no '=' symbol, include only driver_covered.",
+      "fields": {
+        "DISCOUNT_TYPE": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract discount type as key. Value is object with percentage (if '=' found in text) and/or driver_covered. Examples: '25 • Years Claims Free = 5%', 'Multi-Line = 10%'.",
+          "description": "Discount type (e.g., '25 • Years Claims Free = 5%', 'Multi-Line = 10%')",
+          "variant_1": {
+            "condition": "If discount text contains '=' symbol",
+            "fields": {
+              "percentage": {
+                "type": "string",
+                "mode": "free_text",
+                "required": false,
+                "description": "Discount percentage (string type, e.g., '5%', '10%')"
+              },
+              "driver_covered": {
+                "type": "string",
+                "mode": "free_text",
+                "required": false,
+                "description": "Driver covered (e.g., 'Prn' for Principal, 'Occ' for Occasional)"
+              }
+            }
+          },
+          "variant_2": {
+            "condition": "If discount text does not contain '=' symbol",
+            "fields": {
+              "driver_covered": {
+                "type": "string",
+                "mode": "free_text",
+                "required": false,
+                "description": "Driver covered (only driver info, no percentage)"
+              }
+            }
+          }
+        }
+      }
+    },
+    "coverages_information": {
+      "required": true,
+      "description": "Coverage information - grouped by vehicle. Object with vehicle model names as keys. If no coverages found, return empty object {}. All amount fields (principal, totals, coverage_amount) are strings, not numbers.",
+      "type": "object",
+      "key_format": "Vehicle model name (must exactly match vehicles_information keys, case-sensitive)",
+      "extraction_logic": "Extract coverage information from Quote PDF, grouped by vehicle. For each vehicle, use vehicle model name as key. Coverage type is key, value contains principal, totals, and/or coverage_amount. All three fields may exist, or some may be null, depending on coverage type and extraction result.",
+      "fields": {
+        "COVERAGE_TYPE": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract coverage type as key. Examples: 'Bodily Injury', 'Property Damage', 'All Perils'. Value is object with principal, totals, and/or coverage_amount fields.",
+          "description": "Coverage type (e.g., 'Bodily Injury', 'Property Damage', 'All Perils')",
+          "fields": {
+            "principal": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Extract principal coverage amount. Format: '1 M' (1 million), '1,000' (1 thousand), '50K' (50 thousand), etc. May be null if not found.",
+              "description": "Principal coverage amount (string type, e.g., '1 M', '1,000', '50K', may be null)"
+            },
+            "totals": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Extract total premium amount. Format: '181', '9', '383', etc. This field always exists.",
+              "description": "Total premium amount (string type, e.g., '181', '9', '383', always exists)"
+            },
+            "coverage_amount": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Extract formatted coverage amount. Format: '1M', '1,000', '50K', etc. May be null if cannot be extracted from text.",
+              "description": "Formatted coverage amount (string type, e.g., '1M', '1,000', '50K', may be null)"
+            }
+          }
+        }
+      }
+    },
+    "application_info": {
+      "required": false,
+      "description": "Application form information - extracted from Application PDF",
+      "source": "Application PDF",
+      "fields": {
+        "address": {
+          "required": false,
+          "description": "Address from application form",
+          "fields": {
+            "address": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Street address"
+            },
+            "city": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "City name"
+            },
+            "province": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": false,
+              "description": "Province code",
+              "options": ["ON", "BC", "AB", "QC", "MB", "SK", "NS", "NB", "NL", "PE", "YT", "NT", "NU"]
+            },
+            "postal_code": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Postal code"
+            }
+          }
+        },
+        "phone": {
+          "required": false,
+          "description": "Phone from application form",
+          "fields": {
+            "type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": false,
+              "description": "Phone type ('Home', 'Mobile', 'Work', 'Fax')",
+              "options": ["Home", "Mobile", "Work", "Fax"]
+            },
+            "number": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Extract phone number from Application PDF. Format logic: if length = 10 digits: 'XXX-XXX-XXXX'; if length > 10 digits: 'XXX-XXX-XXXX xXXXX' (where XXXX is the extension digits).",
+              "description": "Phone number. Format: 'XXX-XXX-XXXX' for 10 digits, or 'XXX-XXX-XXXX xXXXX' for numbers with extension"
+            }
+          }
+        },
+        "lienholders": {
+          "required": true,
+          "description": "Lienholders list - always exists, returns empty array [] if no lienholders",
+          "type": "array",
+          "extraction_logic": "Extract lienholders from Application PDF. Each lienholder is an object. Always return an array, even if empty [].",
+          "always_array": true,
+          "item_fields": {
+            "name": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Lienholder name (string type)"
+            },
+            "address": {
+              "type": "array",
+              "mode": "free_text",
+              "required": false,
+              "description": "Lienholder address (array type, contains address parts)"
+            },
+            "postal_code": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Postal code (string type)"
+            },
+            "province": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "description": "Province (string type)"
+            },
+            "liability": {
+              "type": "object",
+              "mode": "free_text",
+              "required": false,
+              "description": "Liability information",
+              "fields": {
+                "vin": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": false,
+                  "description": "Associated vehicle VIN number"
+                },
+                "model_name": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": false,
+                  "description": "Associated vehicle model name"
+                }
+              }
+            }
+          }
+        },
+        "lessor": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract lessor information from Application PDF.",
+          "description": "Lessor information (string or null)"
+        },
+        "caa_membership": {
+          "type": "string",
+          "mode": "radio",
+          "required": false,
+          "extraction_logic": "Extract CAA membership status from Application PDF. Default to 'No' if not found.",
+          "description": "CAA membership ('Yes' or 'No')",
+          "options": ["Yes", "No"]
+        },
+        "caa_membership_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract CAA membership number from Application PDF.",
+          "description": "CAA membership number (string or null)"
+        },
+        "effective_date": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Extract policy effective date from Application PDF. IMPORTANT: This is the ONLY date field that uses YYYY-MM-DD format. All other date fields use MM/DD/YYYY format.",
+          "description": "Policy effective date in YYYY-MM-DD format (e.g., '2026-03-01') - NOTE: This is the ONLY field using this format"
+        },
+        "previous_insurance": {
+          "required": false,
+          "description": "Previous insurance information",
+          "type": "object",
+          "fields": {
+            "provider": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Extract previous insurance carrier name from Application PDF.",
+              "description": "Previous insurance carrier name (provider)"
+            },
+            "policy_number": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Extract previous policy number from Application PDF.",
+              "description": "Previous policy number"
+            },
+            "expiry_date": {
+              "type": "string",
+              "mode": "date",
+              "required": false,
+              "extraction_logic": "Extract previous expiry date from Application PDF. Format: MM/DD/YYYY.",
+              "description": "Previous expiry date in MM/DD/YYYY format"
+            }
+          }
+        }
+      }
+    }
+  }
+}

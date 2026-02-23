@@ -19,7 +19,8 @@ def main():
     parser.add_argument(
         "--autoplus",
         type=str,
-        help="Path to Autoplus document"
+        action="append",
+        help="Path to Autoplus document (can be specified multiple times for multiple documents)"
     )
     parser.add_argument(
         "--quote",
@@ -29,7 +30,8 @@ def main():
     parser.add_argument(
         "--mvr",
         type=str,
-        help="Path to MVR document"
+        action="append",
+        help="Path to MVR document (can be specified multiple times for multiple drivers)"
     )
     parser.add_argument(
         "--application-form",
@@ -54,10 +56,13 @@ def main():
     args = parser.parse_args()
     
     # Check at least one document is provided
-    if not any([args.autoplus, args.quote, args.mvr, args.application_form]):
+    autoplus_list = args.autoplus if args.autoplus else []
+    mvr_list = args.mvr if args.mvr else []
+    if not any([autoplus_list, args.quote, mvr_list, args.application_form]):
         print("[ERROR] At least one document path must be provided")
         print("\nUsage example:")
         print("  python main.py --autoplus path/to/autoplus.pdf --quote path/to/quote.pdf")
+        print("  python main.py --mvr path/to/mvr1.pdf --mvr path/to/mvr2.pdf")
         parser.print_help()
         return
     
@@ -71,9 +76,9 @@ def main():
         
         # Generate JSON
         json_data = generator.generate_json(
-            autoplus_path=args.autoplus,
+            autoplus_paths=autoplus_list if autoplus_list else None,
             quote_path=args.quote,
-            mvr_path=args.mvr,
+            mvr_paths=mvr_list if mvr_list else None,
             application_form_path=args.application_form
         )
         

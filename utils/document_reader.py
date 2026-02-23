@@ -74,29 +74,69 @@ def read_document(file_path: str) -> str:
 
 def extract_text_from_documents(
     autoplus_path: Optional[str] = None,
+    autoplus_paths: Optional[list] = None,
     quote_path: Optional[str] = None,
     mvr_path: Optional[str] = None,
+    mvr_paths: Optional[list] = None,
     application_form_path: Optional[str] = None
 ) -> dict:
     """
     Extract text from all documents
     
+    Args:
+        autoplus_path: Path to a single Autoplus document (for backward compatibility)
+        autoplus_paths: List of paths to Autoplus documents (takes precedence over autoplus_path)
+        quote_path: Path to Quote document
+        mvr_path: Path to a single MVR document (for backward compatibility)
+        mvr_paths: List of paths to MVR documents (takes precedence over mvr_path)
+        application_form_path: Path to Application Form document
+    
     Returns:
         Dictionary containing document names and content
+        Multiple Autoplus documents will be stored as "Autoplus_1", "Autoplus_2", etc.
+        Multiple MVR documents will be stored as "MVR_1", "MVR_2", etc.
     """
     documents = {}
     
-    if autoplus_path and os.path.exists(autoplus_path):
-        print(f"Reading Autoplus document: {os.path.basename(autoplus_path)}")
-        documents["Autoplus"] = read_document(autoplus_path)
+    # Handle multiple Autoplus files
+    autoplus_list = []
+    if autoplus_paths:
+        autoplus_list = autoplus_paths if isinstance(autoplus_paths, list) else [autoplus_paths]
+    elif autoplus_path:
+        autoplus_list = [autoplus_path]
+    
+    if autoplus_list:
+        for idx, autoplus_file in enumerate(autoplus_list, start=1):
+            if autoplus_file and os.path.exists(autoplus_file):
+                print(f"Reading Autoplus document {idx}: {os.path.basename(autoplus_file)}")
+                if len(autoplus_list) == 1:
+                    # Single Autoplus file - use "Autoplus" for backward compatibility
+                    documents["Autoplus"] = read_document(autoplus_file)
+                else:
+                    # Multiple Autoplus files - use "Autoplus_1", "Autoplus_2", etc.
+                    documents[f"Autoplus_{idx}"] = read_document(autoplus_file)
     
     if quote_path and os.path.exists(quote_path):
         print(f"Reading Quote document: {os.path.basename(quote_path)}")
         documents["Quote"] = read_document(quote_path)
     
-    if mvr_path and os.path.exists(mvr_path):
-        print(f"Reading MVR document: {os.path.basename(mvr_path)}")
-        documents["MVR"] = read_document(mvr_path)
+    # Handle multiple MVR files
+    mvr_list = []
+    if mvr_paths:
+        mvr_list = mvr_paths if isinstance(mvr_paths, list) else [mvr_paths]
+    elif mvr_path:
+        mvr_list = [mvr_path]
+    
+    if mvr_list:
+        for idx, mvr_file in enumerate(mvr_list, start=1):
+            if mvr_file and os.path.exists(mvr_file):
+                print(f"Reading MVR document {idx}: {os.path.basename(mvr_file)}")
+                if len(mvr_list) == 1:
+                    # Single MVR file - use "MVR" for backward compatibility
+                    documents["MVR"] = read_document(mvr_file)
+                else:
+                    # Multiple MVR files - use "MVR_1", "MVR_2", etc.
+                    documents[f"MVR_{idx}"] = read_document(mvr_file)
     
     if application_form_path and os.path.exists(application_form_path):
         print(f"Reading Application Form: {os.path.basename(application_form_path)}")

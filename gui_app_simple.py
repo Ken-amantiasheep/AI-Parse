@@ -204,6 +204,246 @@ class DocumentDropFrame(tk.Frame):
                 widget.config(bg=self.original_bg)
 
 
+class MultiFileDropFrame(tk.Frame):
+    """Frame for multiple file drop with visual feedback and drag & drop support"""
+    
+    def __init__(self, parent, label_text, row, col):
+        super().__init__(parent, relief=tk.RAISED, borderwidth=2, bg="#F5F5F5")
+        self.file_paths = []
+        self.label_text = label_text
+        
+        self.grid(row=row, column=col, padx=15, pady=15, sticky="nsew")
+        
+        # Configure for hover effect
+        self.original_bg = "#F5F5F5"
+        self.hover_bg = "#E3F2FD"
+        self.active_bg = "#E8F5E9"
+        self.drag_over_bg = "#FFF9C4"
+        
+        # Enable drag and drop if available
+        if DND_AVAILABLE:
+            self.drop_target_register(DND_FILES)
+            self.dnd_bind('<<Drop>>', self.on_drop)
+            self.dnd_bind('<<DragEnter>>', self.on_drag_enter)
+            self.dnd_bind('<<DragLeave>>', self.on_drag_leave)
+        
+        # Title label
+        title_label = tk.Label(
+            self,
+            text=label_text,
+            font=("Arial", 11, "bold"),
+            bg=self.original_bg,
+            fg="#333333",
+            pady=15
+        )
+        title_label.pack()
+        
+        # Icon/placeholder
+        icon_label = tk.Label(
+            self,
+            text="📄",
+            font=("Arial", 32),
+            bg=self.original_bg,
+            fg="#999999"
+        )
+        icon_label.pack(pady=10)
+        
+        # File paths label (scrollable)
+        list_frame = tk.Frame(self, bg=self.original_bg)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.path_listbox = tk.Listbox(
+            list_frame,
+            font=("Arial", 9),
+            bg="#FFFFFF",
+            fg="#333333",
+            yscrollcommand=scrollbar.set,
+            height=4
+        )
+        self.path_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.path_listbox.yview)
+        
+        # Placeholder label
+        self.placeholder_label = tk.Label(
+            self,
+            text="Click to select files\n(Can select multiple)",
+            font=("Arial", 9),
+            bg=self.original_bg,
+            fg="#999999",
+            wraplength=200
+        )
+        self.placeholder_label.pack(pady=5, padx=10)
+        
+        # Buttons frame
+        buttons_frame = tk.Frame(self, bg=self.original_bg)
+        buttons_frame.pack(pady=5)
+        
+        # Browse button
+        self.browse_btn = tk.Button(
+            buttons_frame,
+            text="Browse...",
+            command=self.browse_files,
+            bg="#2196F3",
+            fg="white",
+            font=("Arial", 9),
+            relief=tk.FLAT,
+            padx=15,
+            pady=6,
+            cursor="hand2",
+            activebackground="#1976D2",
+            activeforeground="white"
+        )
+        self.browse_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Remove button
+        self.remove_btn = tk.Button(
+            buttons_frame,
+            text="Remove",
+            command=self.remove_selected,
+            bg="#F44336",
+            fg="white",
+            font=("Arial", 9),
+            relief=tk.FLAT,
+            padx=15,
+            pady=6,
+            cursor="hand2",
+            activebackground="#D32F2F",
+            activeforeground="white"
+        )
+        self.remove_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Bind click events
+        self.bind("<Button-1>", self.on_click)
+        title_label.bind("<Button-1>", self.on_click)
+        icon_label.bind("<Button-1>", self.on_click)
+        self.placeholder_label.bind("<Button-1>", self.on_click)
+        
+        # Bind hover events
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
+        title_label.bind("<Enter>", self.on_enter)
+        title_label.bind("<Leave>", self.on_leave)
+        icon_label.bind("<Enter>", self.on_enter)
+        icon_label.bind("<Leave>", self.on_leave)
+        self.placeholder_label.bind("<Enter>", self.on_enter)
+        self.placeholder_label.bind("<Leave>", self.on_leave)
+    
+    def on_drop(self, event):
+        """Handle file drop"""
+        files = self.tk.splitlist(event.data)
+        for file_path in files:
+            file_path = file_path.strip('{}')  # Remove braces if present
+            if file_path and os.path.exists(file_path):
+                self.add_file(file_path)
+    
+    def on_drag_enter(self, event):
+        """Handle drag enter - change background color"""
+        self.config(bg=self.drag_over_bg)
+        for widget in self.winfo_children():
+            if isinstance(widget, tk.Label) and widget != self.placeholder_label:
+                widget.config(bg=self.drag_over_bg)
+    
+    def on_drag_leave(self, event):
+        """Handle drag leave - restore background color"""
+        if not self.file_paths:
+            self.config(bg=self.original_bg)
+            for widget in self.winfo_children():
+                if isinstance(widget, tk.Label) and widget != self.placeholder_label:
+                    widget.config(bg=self.original_bg)
+    
+    def on_click(self, event):
+        """Handle click to browse files"""
+        self.browse_files()
+    
+    def browse_files(self):
+        """Open file browser for multiple files"""
+        filetypes = [
+            ("All supported", "*.pdf;*.doc;*.docx;*.txt"),
+            ("PDF files", "*.pdf"),
+            ("Word documents", "*.doc;*.docx"),
+            ("Text files", "*.txt"),
+            ("All files", "*.*")
+        ]
+        
+        filenames = filedialog.askopenfilenames(
+            title=f"Select {self.label_text}",
+            filetypes=filetypes
+        )
+        
+        for filename in filenames:
+            if filename and os.path.exists(filename):
+                self.add_file(filename)
+    
+    def add_file(self, file_path):
+        """Add a file to the list"""
+        if file_path not in self.file_paths:
+            self.file_paths.append(file_path)
+            filename = os.path.basename(file_path)
+            self.path_listbox.insert(tk.END, filename)
+            
+            # Hide placeholder, show listbox
+            if len(self.file_paths) == 1:
+                self.placeholder_label.pack_forget()
+                self.path_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, before=self.placeholder_label)
+            
+            # Update background
+            self.config(bg=self.active_bg)
+            for widget in self.winfo_children():
+                if isinstance(widget, tk.Label) and widget != self.placeholder_label:
+                    widget.config(bg=self.active_bg)
+    
+    def remove_selected(self):
+        """Remove selected file from list"""
+        selection = self.path_listbox.curselection()
+        if selection:
+            index = selection[0]
+            self.path_listbox.delete(index)
+            self.file_paths.pop(index)
+            
+            # Show placeholder if no files
+            if not self.file_paths:
+                self.path_listbox.pack_forget()
+                self.placeholder_label.pack(pady=5, padx=10)
+                self.config(bg=self.original_bg)
+                for widget in self.winfo_children():
+                    if isinstance(widget, tk.Label) and widget != self.placeholder_label:
+                        widget.config(bg=self.original_bg)
+    
+    def on_enter(self, event):
+        """Handle mouse enter"""
+        if not self.file_paths:
+            self.config(bg=self.hover_bg)
+            for widget in self.winfo_children():
+                if isinstance(widget, tk.Label) and widget != self.placeholder_label:
+                    widget.config(bg=self.hover_bg)
+    
+    def on_leave(self, event):
+        """Handle mouse leave"""
+        if not self.file_paths:
+            self.config(bg=self.original_bg)
+            for widget in self.winfo_children():
+                if isinstance(widget, tk.Label) and widget != self.placeholder_label:
+                    widget.config(bg=self.original_bg)
+    
+    def get_files(self):
+        """Get the selected file paths"""
+        return self.file_paths.copy() if self.file_paths else None
+    
+    def clear(self):
+        """Clear all selected files"""
+        self.file_paths = []
+        self.path_listbox.delete(0, tk.END)
+        self.placeholder_label.pack(pady=5, padx=10)
+        self.path_listbox.pack_forget()
+        self.config(bg=self.original_bg)
+        for widget in self.winfo_children():
+            if isinstance(widget, tk.Label) and widget != self.placeholder_label:
+                widget.config(bg=self.original_bg)
+
+
 class IntactJSONGeneratorGUI:
     """Main GUI application"""
     
@@ -214,8 +454,37 @@ class IntactJSONGeneratorGUI:
         self.root.resizable(True, True)
         self.root.configure(bg="#FFFFFF")
         
-        # Create main container
-        main_container = tk.Frame(root, bg="#FFFFFF")
+        # Create canvas with scrollbar
+        canvas = tk.Canvas(root, bg="#FFFFFF", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(root, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg="#FFFFFF")
+        
+        def update_scrollregion(event=None):
+            canvas.update_idletasks()
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        scrollable_frame.bind("<Configure>", update_scrollregion)
+        
+        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        def configure_canvas_width(event):
+            canvas_width = event.width
+            canvas.itemconfig(canvas_window, width=canvas_width)
+        
+        canvas.bind("<Configure>", configure_canvas_width)
+        
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Bind mousewheel to canvas
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        # Create main container inside scrollable frame
+        main_container = tk.Frame(scrollable_frame, bg="#FFFFFF")
         main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
         # Title
@@ -244,6 +513,33 @@ class IntactJSONGeneratorGUI:
         )
         subtitle_label.pack(pady=(5, 0))
         
+        # Company selection frame
+        company_frame = tk.Frame(main_container, bg="#FFFFFF")
+        company_frame.pack(fill=tk.X, pady=(10, 20))
+        
+        company_label = tk.Label(
+            company_frame,
+            text="Company:",
+            font=("Arial", 11, "bold"),
+            fg="#333333",
+            bg="#FFFFFF"
+        )
+        company_label.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Company dropdown
+        self.company_var = tk.StringVar(value="Intact")
+        company_options = ["Intact", "CAA", "Aviva"]
+        self.company_combo = ttk.Combobox(
+            company_frame,
+            textvariable=self.company_var,
+            values=company_options,
+            state="readonly",
+            width=15,
+            font=("Arial", 11)
+        )
+        self.company_combo.pack(side=tk.LEFT)
+        self.company_combo.bind("<<ComboboxSelected>>", self.on_company_change)
+        
         # Document frames container
         docs_container = tk.Frame(main_container, bg="#FFFFFF")
         docs_container.pack(fill=tk.BOTH, expand=True, pady=10)
@@ -255,9 +551,9 @@ class IntactJSONGeneratorGUI:
         docs_container.grid_rowconfigure(1, weight=1)
         
         # Create 4 document frames
-        self.autoplus_frame = DocumentDropFrame(docs_container, "Autoplus Document", 0, 0)
+        self.autoplus_frame = MultiFileDropFrame(docs_container, "Autoplus Document(s)", 0, 0)
         self.quote_frame = DocumentDropFrame(docs_container, "Quote Document", 0, 1)
-        self.mvr_frame = DocumentDropFrame(docs_container, "MVR Document", 1, 0)
+        self.mvr_frame = MultiFileDropFrame(docs_container, "MVR Document(s)", 1, 0)
         self.app_form_frame = DocumentDropFrame(docs_container, "Application Form", 1, 1)
         
         # Buttons frame
@@ -347,6 +643,11 @@ class IntactJSONGeneratorGUI:
         self.output_text.see(tk.END)
         self.root.update_idletasks()
     
+    def on_company_change(self, event=None):
+        """Handle company selection change"""
+        selected_company = self.company_var.get()
+        self.log(f"Company changed to: {selected_company}")
+    
     def clear_all(self):
         """Clear all selected files"""
         self.autoplus_frame.clear()
@@ -359,14 +660,25 @@ class IntactJSONGeneratorGUI:
     
     def generate_json(self):
         """Generate JSON from selected documents"""
+        # Get selected company
+        selected_company = self.company_var.get()
+        
+        # Check if company output type is configured (only for Aviva, CAA is now configured)
+        if selected_company == "Aviva":
+            messagebox.showinfo(
+                "Output Type Not Configured",
+                "Output type not yet configured"
+            )
+            return
+        
         # Get file paths
-        autoplus_path = self.autoplus_frame.get_file()
+        autoplus_paths = self.autoplus_frame.get_files()
         quote_path = self.quote_frame.get_file()
-        mvr_path = self.mvr_frame.get_file()
+        mvr_paths = self.mvr_frame.get_files()
         app_form_path = self.app_form_frame.get_file()
         
         # Check if at least one file is selected
-        if not any([autoplus_path, quote_path, mvr_path, app_form_path]):
+        if not any([autoplus_paths, quote_path, mvr_paths, app_form_path]):
             messagebox.showwarning(
                 "No Documents",
                 "Please select at least one document to generate JSON."
@@ -378,30 +690,31 @@ class IntactJSONGeneratorGUI:
         self.progress.start()
         self.status_label.config(text="Processing...", fg="#1976D2")
         self.output_text.delete(1.0, tk.END)
-        self.log("Starting JSON generation...")
+        self.log(f"Starting JSON generation for {selected_company}...")
         
         # Run in separate thread to prevent GUI freezing
         thread = threading.Thread(
             target=self._generate_json_thread,
-            args=(autoplus_path, quote_path, mvr_path, app_form_path)
+            args=(autoplus_paths, quote_path, mvr_paths, app_form_path, selected_company)
         )
         thread.daemon = True
         thread.start()
     
-    def _generate_json_thread(self, autoplus_path, quote_path, mvr_path, app_form_path):
+    def _generate_json_thread(self, autoplus_paths, quote_path, mvr_paths, app_form_path, company):
         """Generate JSON in separate thread"""
         try:
             # Initialize generator
             self.root.after(0, self.log, "Initializing generator...")
-            generator = IntactJSONGenerator()
+            generator = IntactJSONGenerator(company=company)
             
             # Generate JSON
-            self.root.after(0, self.log, "Generating JSON from documents...")
+            self.root.after(0, self.log, f"Generating JSON for {company}...")
             json_data = generator.generate_json(
-                autoplus_path=autoplus_path,
+                autoplus_paths=autoplus_paths,
                 quote_path=quote_path,
-                mvr_path=mvr_path,
-                application_form_path=app_form_path
+                mvr_paths=mvr_paths,
+                application_form_path=app_form_path,
+                company=company
             )
             
             # Save JSON
