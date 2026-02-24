@@ -385,21 +385,21 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract kilometers at purchase for THIS specific vehicle. Return as string.",
+          "extraction_logic": "Extract ONLY the value that is visually aligned under the 'km at Purchase' column for THIS specific vehicle. Use strict table column alignment by header label, not left-to-right guessing. Do NOT copy values from neighboring columns ('List Price New' or 'Purchase Price'). If the 'km at Purchase' cell is blank or unclear, return null.",
           "description": "Kilometers at purchase (string type)"
         },
         "list_price_new": {
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract list price new for THIS specific vehicle. Return as string (amount type).",
+          "extraction_logic": "Extract ONLY the value that is visually aligned under the 'List Price New' column for THIS specific vehicle. This is a price/amount field and may appear as plain digits without '$'. Use strict table column alignment by header label. Do NOT copy values from neighboring columns (especially 'km at Purchase'). If the 'List Price New' cell is blank or unclear, return null.",
           "description": "List price new (string type, amount)"
         },
         "purchase_price": {
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract purchase price for THIS specific vehicle. Return as string (amount type).",
+          "extraction_logic": "Extract ONLY the value that is visually aligned under the 'Purchase Price' column for THIS specific vehicle. Use strict table column alignment by header label. Do NOT shift values from adjacent columns. If the 'Purchase Price' cell is blank or unclear, return null.",
           "description": "Purchase price (string type, amount)"
         },
         "winter_tires": {

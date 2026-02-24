@@ -354,6 +354,34 @@ class IntactJSONGeneratorGUI:
         )
         self.company_combo.pack(side=tk.LEFT)
         self.company_combo.bind("<<ComboboxSelected>>", self.on_company_change)
+
+        # Output directory selection
+        output_dir_frame = ttk.Frame(main_container)
+        output_dir_frame.pack(fill=tk.X, pady=(0, 10))
+
+        output_dir_label = ttk.Label(
+            output_dir_frame,
+            text="Output Folder:",
+            font=("Arial", 11, "bold")
+        )
+        output_dir_label.pack(side=tk.LEFT, padx=(0, 10))
+
+        default_output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "output"))
+        self.output_dir_var = tk.StringVar(value=default_output_dir)
+        self.output_dir_entry = ttk.Entry(
+            output_dir_frame,
+            textvariable=self.output_dir_var,
+            width=60
+        )
+        self.output_dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        browse_output_btn = ttk.Button(
+            output_dir_frame,
+            text="Browse...",
+            command=self.select_output_folder,
+            width=12
+        )
+        browse_output_btn.pack(side=tk.LEFT)
         
         # Subtitle
         subtitle_label = ttk.Label(
@@ -483,6 +511,17 @@ class IntactJSONGeneratorGUI:
         """Handle company selection change"""
         selected_company = self.company_var.get()
         self.log(f"Company changed to: {selected_company}")
+
+    def select_output_folder(self):
+        """Select output folder for generated JSON"""
+        current_dir = self.output_dir_var.get().strip() or os.getcwd()
+        selected_dir = filedialog.askdirectory(
+            title="Select output folder for JSON",
+            initialdir=current_dir if os.path.isdir(current_dir) else os.getcwd()
+        )
+        if selected_dir:
+            self.output_dir_var.set(selected_dir)
+            self.log(f"Output folder set to: {selected_dir}")
     
     def clear_all(self):
         """Clear all selected files"""
@@ -554,7 +593,11 @@ class IntactJSONGeneratorGUI:
             )
             
             # Save JSON
-            output_path = os.path.join("output", "output.json")
+            output_dir = self.output_dir_var.get().strip()
+            if not output_dir:
+                output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "output"))
+            applicant_filename = generator.get_applicant_filename(json_data)
+            output_path = os.path.join(output_dir, f"{applicant_filename}.json")
             generator.save_json(json_data, output_path)
             
             # Update UI in main thread

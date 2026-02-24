@@ -4,6 +4,8 @@ JSON Generator - Generate JSON from documents using Claude API
 import json
 import os
 import sys
+import re
+from datetime import datetime
 from typing import Dict, Optional
 from anthropic import Anthropic
 
@@ -227,11 +229,17 @@ class IntactJSONGenerator:
         fields_section = self._build_fields_prompt_section(self.fields_config)
         prompt += fields_section
         
-        prompt += """
+        if self.company.upper() == "CAA":
+            date_rule = "- For CAA, only date_of_birth fields must be MM/DD/YYYY. Do not force-convert other date fields."
+        else:
+            date_rule = "- All dates must be in YYYY-MM-DD format"
+
+        prompt += f"""
 
 ## Important Rules:
-- All dates must be in YYYY-MM-DD format
+{date_rule}
 - Use null or empty string for missing information
+- For table-based fields, map values by strict column-header alignment. Never shift a value horizontally into a neighboring column when a cell is blank.
 - Driver and vehicle keys must use numeric suffixes (driver_1, vehicle_1, etc.)
 - Extract convictions from MVR documents with date and description
 - If a conviction is for speeding, include the km/h field
@@ -239,7 +247,7 @@ class IntactJSONGenerator:
 
 Please carefully analyze all documents and extract accurate information to generate a complete JSON object. 
 
-IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks. Start your response directly with { and end with }."""
+IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks. Start your response directly with {{ and end with }}."""
         
         return prompt
     
@@ -356,8 +364,145 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         
         if "coverages_information" in data and not isinstance(data["coverages_information"], dict):
             data["coverages_information"] = {}
+
+        # CAA: force DOB to MM/DD/YYYY, even if model returns YYYY-MM-DD.
+        if self._should_apply_caa_dob_normalization(data):
+            data, changed_count = self._normalize_caa_birth_dates(data)
+            if changed_count > 0:
+                print(f"[INFO] Normalized {changed_count} date_of_birth field(s) to MM/DD/YYYY")
+            data, corrected_vehicles = self._apply_caa_vehicle_purchase_sanity(data)
+            if corrected_vehicles > 0:
+                print(f"[INFO] Corrected purchase table column misalignment in {corrected_vehicles} vehicle(s)")
         
         return data
+
+    @staticmethod
+    def _format_to_mmddyyyy(date_value):
+        """Convert common date formats to MM/DD/YYYY; return original if conversion fails."""
+        if date_value is None:
+            return date_value
+        if not isinstance(date_value, str):
+            return date_value
+
+        value = date_value.strip()
+        if not value:
+            return date_value
+
+        # Already correct format
+        if re.match(r"^\d{2}/\d{2}/\d{4}$", value):
+            return value
+
+        # Fast path for ISO date
+        iso_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", value)
+        if iso_match:
+            year, month, day = iso_match.groups()
+            return f"{month}/{day}/{year}"
+
+        for fmt in ("%Y/%m/%d", "%m-%d-%Y", "%m/%d/%Y", "%Y.%m.%d"):
+            try:
+                dt = datetime.strptime(value, fmt)
+                return dt.strftime("%m/%d/%Y")
+            except ValueError:
+                continue
+
+        return date_value
+
+    def _should_apply_caa_dob_normalization(self, data: Dict) -> bool:
+        """Apply CAA DOB normalization for explicit CAA mode or CAA-like output."""
+        if self.company.upper() == "CAA":
+            return True
+
+        if not isinstance(data, dict):
+            return False
+
+        application_info = data.get("application_info")
+        if isinstance(application_info, dict) and "caa_membership" in application_info:
+            return True
+
+        carrier_info = data.get("carrier_information")
+        if isinstance(carrier_info, dict):
+            carrier_name = carrier_info.get("carrier_name")
+            if isinstance(carrier_name, str) and "CAA" in carrier_name.upper():
+                return True
+
+        return False
+
+    def _normalize_caa_birth_dates(self, data: Dict):
+        """Normalize CAA birth date fields to MM/DD/YYYY."""
+        if not isinstance(data, dict):
+            return data, 0
+
+        changed_count = 0
+
+        applicant = data.get("applicant_information")
+        if isinstance(applicant, dict) and "date_of_birth" in applicant:
+            original = applicant.get("date_of_birth")
+            normalized = self._format_to_mmddyyyy(original)
+            applicant["date_of_birth"] = normalized
+            if normalized != original:
+                changed_count += 1
+
+        drivers = data.get("drivers_information")
+        if isinstance(drivers, dict):
+            for _, driver in drivers.items():
+                if isinstance(driver, dict) and "date_of_birth" in driver:
+                    original = driver.get("date_of_birth")
+                    normalized = self._format_to_mmddyyyy(original)
+                    driver["date_of_birth"] = normalized
+                    if normalized != original:
+                        changed_count += 1
+
+        return data, changed_count
+
+    @staticmethod
+    def _is_missing(value) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, str) and not value.strip():
+            return True
+        return False
+
+    @staticmethod
+    def _extract_digits_as_int(value):
+        if not isinstance(value, str):
+            return None
+        digits = re.sub(r"\D", "", value)
+        if not digits:
+            return None
+        try:
+            return int(digits)
+        except ValueError:
+            return None
+
+    def _apply_caa_vehicle_purchase_sanity(self, data: Dict):
+        """
+        Correct common CAA table-column misalignment:
+        if purchase_condition is New, km_at_purchase is implausibly high (>=5000),
+        and list_price_new is missing, move km_at_purchase -> list_price_new.
+        """
+        if not isinstance(data, dict):
+            return data, 0
+
+        vehicles = data.get("vehicles_information")
+        if not isinstance(vehicles, dict):
+            return data, 0
+
+        corrected = 0
+        for _, vehicle in vehicles.items():
+            if not isinstance(vehicle, dict):
+                continue
+
+            condition = vehicle.get("purchase_condition")
+            km_value = vehicle.get("km_at_purchase")
+            list_price = vehicle.get("list_price_new")
+
+            km_int = self._extract_digits_as_int(km_value) if isinstance(km_value, str) else None
+            if condition == "New" and km_int is not None and km_int >= 5000 and self._is_missing(list_price):
+                vehicle["list_price_new"] = km_value
+                vehicle["km_at_purchase"] = None
+                corrected += 1
+
+        return data, corrected
     
     def save_json(self, data: Dict, output_path: str):
         """Save JSON to file"""
@@ -365,3 +510,37 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         print(f"\n[SUCCESS] JSON saved to: {output_path}")
+
+    @staticmethod
+    def _sanitize_filename(name: str) -> str:
+        """Sanitize filename for Windows/macOS/Linux compatibility."""
+        if not name:
+            return "output"
+        safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip()
+        # Avoid trailing spaces/dots on Windows
+        safe_name = safe_name.rstrip(" .")
+        return safe_name or "output"
+
+    def get_applicant_filename(self, data: Dict, fallback: str = "output") -> str:
+        """
+        Build output filename from applicant name in generated JSON.
+
+        Priority:
+        1) applicant_information.full_name
+        2) applicant_information.first_name + applicant_information.last_name
+        3) fallback
+        """
+        applicant = data.get("applicant_information", {}) if isinstance(data, dict) else {}
+
+        full_name = applicant.get("full_name")
+        if isinstance(full_name, str) and full_name.strip():
+            return self._sanitize_filename(full_name.strip())
+
+        first_name = applicant.get("first_name")
+        last_name = applicant.get("last_name")
+        if isinstance(first_name, str) and isinstance(last_name, str):
+            combined = f"{first_name.strip()} {last_name.strip()}".strip()
+            if combined:
+                return self._sanitize_filename(combined)
+
+        return self._sanitize_filename(fallback)
