@@ -365,14 +365,18 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         if "coverages_information" in data and not isinstance(data["coverages_information"], dict):
             data["coverages_information"] = {}
 
-        # CAA: force DOB to MM/DD/YYYY, even if model returns YYYY-MM-DD.
+        # CAA-specific post-processing and normalization
         if self._should_apply_caa_dob_normalization(data):
+            # 1) Normalize DOB fields
             data, changed_count = self._normalize_caa_birth_dates(data)
             if changed_count > 0:
                 print(f"[INFO] Normalized {changed_count} date_of_birth field(s) to MM/DD/YYYY")
+            # 2) Fix common vehicle purchase table issues
             data, corrected_vehicles = self._apply_caa_vehicle_purchase_sanity(data)
             if corrected_vehicles > 0:
                 print(f"[INFO] Corrected purchase table column misalignment in {corrected_vehicles} vehicle(s)")
+            # 3) Enforce CAA Auto Submission JSON structure/rules
+            data = self._apply_caa_output_normalization(data)
         
         return data
 
@@ -503,6 +507,271 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                 corrected += 1
 
         return data, corrected
+
+    def _apply_caa_output_normalization(self, data: Dict) -> Dict:
+        """
+        Apply CAA Auto Submission JSON post-processing rules on top of model output.
+
+        Key goals:
+        - vehicles_information: no null purchase_price; drivers strings use '(PRN)'.
+        - drivers_information: claims/convictions/suspensions/lapses/vehicles are arrays;
+          claims objects have required fields (policy, codes, tp_bi, tp_pd, ab, coll, other_pd).
+        - discounts_information: driver_covered uses 'PRN' instead of 'Prn'.
+        - application_info: avoid obvious nulls for CAA-specific fields (like caa_membership).
+        """
+        if not isinstance(data, dict):
+            return data
+
+        vehicle_keys = []
+        vehicles = data.get("vehicles_information")
+        if isinstance(vehicles, dict):
+            vehicle_keys = list(vehicles.keys())
+            for _, vehicle in vehicles.items():
+                if not isinstance(vehicle, dict):
+                    continue
+
+                # annual_km / daily_km: avoid null, prefer empty string
+                for km_field in ("annual_km", "daily_km"):
+                    if km_field in vehicle and vehicle[km_field] is None:
+                        vehicle[km_field] = ""
+
+                # purchase_price: cannot be null, default to list_price_new or "0"
+                purchase_price = vehicle.get("purchase_price")
+                if purchase_price is None:
+                    list_price = vehicle.get("list_price_new")
+                    if self._is_missing(list_price):
+                        vehicle["purchase_price"] = "0"
+                    else:
+                        vehicle["purchase_price"] = str(list_price)
+
+                # drivers: normalize relationship code to '(PRN)' in uppercase
+                drivers_list = vehicle.get("drivers")
+                if isinstance(drivers_list, list):
+                    normalized_drivers = []
+                    for drv in drivers_list:
+                        if isinstance(drv, str):
+                            # Replace any '(Prn)' / '(prn)' / '(PRn)' etc. with '(PRN)'
+                            normalized = re.sub(r"\(\s*prn\s*\)", "(PRN)", drv, flags=re.IGNORECASE)
+                            normalized_drivers.append(normalized)
+                        else:
+                            normalized_drivers.append(drv)
+                    vehicle["drivers"] = normalized_drivers
+
+        # discounts_information: normalize driver_covered => 'PRN'
+        discounts = data.get("discounts_information")
+        if isinstance(discounts, dict):
+            for _, veh_discounts in discounts.items():
+                if not isinstance(veh_discounts, dict):
+                    continue
+                for _, discount in veh_discounts.items():
+                    if not isinstance(discount, dict):
+                        continue
+                    dc = discount.get("driver_covered")
+                    if isinstance(dc, str) and dc.lower() == "prn":
+                        discount["driver_covered"] = "PRN"
+
+        # drivers_information normalization (claims structure, arrays, etc.)
+        drivers_info = data.get("drivers_information")
+        if isinstance(drivers_info, dict):
+            for _, driver in drivers_info.items():
+                if not isinstance(driver, dict):
+                    continue
+
+                # Ensure core array fields exist and are arrays
+                for field in ("claims", "convictions", "suspensions", "lapses", "vehicles"):
+                    value = driver.get(field)
+                    if value is None:
+                        driver[field] = []
+                    elif not isinstance(value, list):
+                        driver[field] = [value]
+
+                # Normalize claims to object structure
+                raw_claims = driver.get("claims") or []
+                normalized_claims = []
+                for claim in raw_claims:
+                    if isinstance(claim, str):
+                        normalized_claims.append(
+                            self._parse_caa_claim_string(claim, vehicle_keys)
+                        )
+                    elif isinstance(claim, dict):
+                        normalized_claims.append(
+                            self._normalize_caa_claim_object(claim, vehicle_keys)
+                        )
+                driver["claims"] = normalized_claims
+
+        # application_info specific tweaks
+        app_info = data.get("application_info")
+        if isinstance(app_info, dict):
+            # caa_membership: default to "No" instead of null
+            if app_info.get("caa_membership") is None:
+                app_info["caa_membership"] = "No"
+            # avoid obvious nulls for strings we know are simple scalars
+            for key in ("address", "phone", "caa_membership_number", "lessor"):
+                if key in app_info and app_info[key] is None:
+                    app_info[key] = ""
+
+        return data
+
+    def _parse_caa_claim_string(self, claim_str: str, vehicle_keys) -> Dict:
+        """
+        Convert a CAA claim string like:
+        "Non-resp Direct Compensation 08/24/2001 No 2019 NISSAN KICKS S 4DR 2WD TP/BI$: 5000"
+        into a normalized claim object with required fields.
+        """
+        if not isinstance(claim_str, str):
+            claim_str = str(claim_str)
+
+        text = claim_str.strip()
+
+        # Defaults
+        description = ""
+        date = ""
+        charge = ""
+        vehicle_involved = ""
+
+        # 1) Extract date (first MM/DD/YYYY)
+        date_match = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", text)
+        if date_match:
+            date = date_match.group(1)
+            before_date = text[: date_match.start()].strip()
+            after_date = text[date_match.end() :].strip()
+        else:
+            before_date = text
+            after_date = ""
+
+        # 2) Description: everything before date
+        description = before_date
+
+        # 3) Charge: first Yes/No after date
+        charge_match = re.search(r"\b(Yes|No)\b", after_date, flags=re.IGNORECASE)
+        if charge_match:
+            charge = charge_match.group(1).capitalize()
+            after_charge = after_date[charge_match.end() :].strip()
+        else:
+            after_charge = after_date
+
+        # 4) Vehicle involved: best-effort match against known vehicle keys
+        for vk in vehicle_keys or []:
+            if vk and vk in text:
+                vehicle_involved = vk
+                break
+
+        # 5) Amount parsing helpers
+        def parse_amount(pattern: str) -> Optional[int]:
+            m = re.search(pattern, text, flags=re.IGNORECASE)
+            if not m:
+                return None
+            raw = m.group(1)
+            digits = re.sub(r"[^\d]", "", raw)
+            if not digits:
+                return None
+            try:
+                return int(digits)
+            except ValueError:
+                return None
+
+        tp_bi = parse_amount(r"TP/BI\\$[: ]*([0-9,\\.]+)")
+        tp_pd = parse_amount(r"TP/PD\\$[: ]*([0-9,\\.]+)")
+        ab = parse_amount(r"AB\\$[: ]*([0-9,\\.]+)")
+        coll = parse_amount(r"COLL\\$[: ]*([0-9,\\.]+)")
+        other_pd = parse_amount(r"OTHER[_ ]?PD\\$[: ]*([0-9,\\.]+)")
+
+        # 6) Codes: glass vs collision
+        desc_lower = text.lower()
+        if "glass" in desc_lower:
+            codes = ["26 - GLASS"]
+        else:
+            codes = ["20 - COLL"]
+
+        claim_obj = {
+            "description": description,
+            "date": date,
+            "charge": charge,
+            "vehicle_involved": vehicle_involved,
+            "policy": "",
+            "codes": codes,
+            "tp_bi": tp_bi if tp_bi is not None else 0,
+            "tp_pd": tp_pd if tp_pd is not None else 0,
+            "ab": ab if ab is not None else 0,
+            "coll": coll if coll is not None else 0,
+            "other_pd": other_pd if other_pd is not None else 0,
+        }
+        return claim_obj
+
+    def _normalize_caa_claim_object(self, claim: Dict, vehicle_keys) -> Dict:
+        """
+        Normalize a claim object that may use CAA field_config keys like
+        'tp/bi', 'tp/pd$', 'ab$', 'coll$', 'other_pd$' into the required
+        flattened structure.
+        """
+        if not isinstance(claim, dict):
+            claim = {}
+
+        def get_amount(*keys) -> Optional[int]:
+            for key in keys:
+                if key in claim:
+                    raw = claim.get(key)
+                    if raw is None:
+                        continue
+                    # Already numeric
+                    if isinstance(raw, (int, float)):
+                        return int(raw)
+                    # String: strip non-digits
+                    s = str(raw)
+                    digits = re.sub(r"[^\d]", "", s)
+                    if digits:
+                        try:
+                            return int(digits)
+                        except ValueError:
+                            continue
+            return None
+
+        desc = claim.get("description") or ""
+        date = claim.get("date") or ""
+        # Ensure MM/DD/YYYY if it's a recognizable date
+        date = self._format_to_mmddyyyy(date)
+        charge = claim.get("charge") or ""
+
+        vehicle_involved = claim.get("vehicle_involved") or ""
+        if not vehicle_involved:
+            # attempt to infer from any vehicle key present in nested text fields
+            combined = " ".join(str(v) for v in claim.values())
+            for vk in vehicle_keys or []:
+                if vk and vk in combined:
+                    vehicle_involved = vk
+                    break
+
+        # Amounts
+        tp_bi = get_amount("tp_bi", "tp/bi")
+        tp_pd = get_amount("tp_pd", "tp/pd", "tp/pd$")
+        ab = get_amount("ab", "ab$")
+        coll = get_amount("coll", "coll$")
+        other_pd = get_amount("other_pd", "other_pd$")
+
+        # Codes
+        codes = claim.get("codes")
+        if not isinstance(codes, list) or not codes:
+            if "glass" in str(desc).lower():
+                codes = ["26 - GLASS"]
+            else:
+                codes = ["20 - COLL"]
+
+        policy = claim.get("policy") or ""
+
+        normalized = {
+            "description": desc,
+            "date": date,
+            "charge": charge,
+            "vehicle_involved": vehicle_involved,
+            "policy": policy,
+            "codes": codes,
+            "tp_bi": tp_bi if tp_bi is not None else 0,
+            "tp_pd": tp_pd if tp_pd is not None else 0,
+            "ab": ab if ab is not None else 0,
+            "coll": coll if coll is not None else 0,
+            "other_pd": other_pd if other_pd is not None else 0,
+        }
+        return normalized
     
     def save_json(self, data: Dict, output_path: str):
         """Save JSON to file"""
