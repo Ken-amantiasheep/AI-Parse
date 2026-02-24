@@ -635,7 +635,7 @@
           "type": "array",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract ALL claims for THIS specific driver from Quote PDF and AP Quote PDFs. Merge claims from all sources. Each claim is an object. Always return an array, even if empty []. All amount fields (tp/bi, tp/pd$, ab$, coll$, other_pd$) are strings, not numbers.",
+          "extraction_logic": "Extract ALL claims for THIS specific driver from Quote PDF and AP Quote PDFs. Merge claims from all sources. Each claim is an object. Always return an array, even if empty []. All amount fields (tp/bi, tp/pd$, ab$, coll$, other_pd$) are strings, not numbers. IMPORTANT: policy field (Claim# / Policy#) is REQUIRED when a claim exists and must NOT be empty.",
           "description": "Claims array - always exists, returns empty array [] if no claims",
           "always_array": true,
           "item_fields": {
@@ -663,6 +663,12 @@
               "mode": "free_text",
               "required": false,
               "description": "Vehicle model name involved in claim"
+            },
+            "policy": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "description": "Claim# / Policy# for this claim. Must be extracted when claim exists and must not be empty."
             },
             "tp/bi": {
               "type": "string",

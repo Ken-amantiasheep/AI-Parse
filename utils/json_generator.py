@@ -234,10 +234,16 @@ class IntactJSONGenerator:
         else:
             date_rule = "- All dates must be in YYYY-MM-DD format"
 
+        if self.company.upper() == "CAA":
+            caa_claim_policy_rule = "- For CAA claims, each claims item must include non-empty policy (Claim# / Policy#)."
+        else:
+            caa_claim_policy_rule = ""
+
         prompt += f"""
 
 ## Important Rules:
 {date_rule}
+{caa_claim_policy_rule}
 - Use null or empty string for missing information
 - For table-based fields, map values by strict column-header alignment. Never shift a value horizontally into a neighboring column when a cell is blank.
 - Driver and vehicle keys must use numeric suffixes (driver_1, vehicle_1, etc.)
@@ -571,8 +577,12 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                         discount["driver_covered"] = "PRN"
 
         # drivers_information normalization (claims structure, arrays, etc.)
+        # fallback claim policy candidates from other sections (best effort)
+        fallback_claim_policy = self._extract_global_claim_policy_fallback(data)
+
         drivers_info = data.get("drivers_information")
         if isinstance(drivers_info, dict):
+            missing_policy_claims = []
             for _, driver in drivers_info.items():
                 if not isinstance(driver, dict):
                     continue
@@ -591,13 +601,30 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                 for claim in raw_claims:
                     if isinstance(claim, str):
                         normalized_claims.append(
-                            self._parse_caa_claim_string(claim, vehicle_keys)
+                            self._parse_caa_claim_string(claim, vehicle_keys, fallback_claim_policy)
                         )
                     elif isinstance(claim, dict):
                         normalized_claims.append(
-                            self._normalize_caa_claim_object(claim, vehicle_keys)
+                            self._normalize_caa_claim_object(claim, vehicle_keys, fallback_claim_policy)
                         )
                 driver["claims"] = normalized_claims
+
+                # Strict validation: policy is required for each non-empty claim
+                for idx, claim in enumerate(driver["claims"]):
+                    if not isinstance(claim, dict):
+                        continue
+                    policy = claim.get("policy")
+                    if self._is_missing(policy):
+                        driver_name = f"{driver.get('first_name', '')} {driver.get('last_name', '')}".strip()
+                        if not driver_name:
+                            driver_name = "UNKNOWN_DRIVER"
+                        missing_policy_claims.append(f"{driver_name} claim[{idx}]")
+
+            if missing_policy_claims:
+                joined = ", ".join(missing_policy_claims)
+                raise ValueError(
+                    f"CAA claims require non-empty policy (Claim# / Policy#). Missing in: {joined}"
+                )
 
         # application_info specific tweaks
         app_info = data.get("application_info")
@@ -612,7 +639,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
 
         return data
 
-    def _parse_caa_claim_string(self, claim_str: str, vehicle_keys) -> Dict:
+    def _parse_caa_claim_string(self, claim_str: str, vehicle_keys, fallback_claim_policy: str = "") -> Dict:
         """
         Convert a CAA claim string like:
         "Non-resp Direct Compensation 08/24/2001 No 2019 NISSAN KICKS S 4DR 2WD TP/BI$: 5000"
@@ -683,12 +710,14 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         else:
             codes = ["20 - COLL"]
 
+        policy = self._extract_claim_policy_from_text(text) or fallback_claim_policy
+
         claim_obj = {
             "description": description,
             "date": date,
             "charge": charge,
             "vehicle_involved": vehicle_involved,
-            "policy": "",
+            "policy": policy or "",
             "codes": codes,
             "tp_bi": tp_bi if tp_bi is not None else 0,
             "tp_pd": tp_pd if tp_pd is not None else 0,
@@ -698,7 +727,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         }
         return claim_obj
 
-    def _normalize_caa_claim_object(self, claim: Dict, vehicle_keys) -> Dict:
+    def _normalize_caa_claim_object(self, claim: Dict, vehicle_keys, fallback_claim_policy: str = "") -> Dict:
         """
         Normalize a claim object that may use CAA field_config keys like
         'tp/bi', 'tp/pd$', 'ab$', 'coll$', 'other_pd$' into the required
@@ -756,7 +785,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             else:
                 codes = ["20 - COLL"]
 
-        policy = claim.get("policy") or ""
+        policy = self._extract_claim_policy_from_claim_obj(claim) or fallback_claim_policy or ""
 
         normalized = {
             "description": desc,
@@ -772,13 +801,98 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             "other_pd": other_pd if other_pd is not None else 0,
         }
         return normalized
+
+    @staticmethod
+    def _extract_claim_policy_from_text(text: str) -> str:
+        """Extract Claim# / Policy# candidate from free text."""
+        if not isinstance(text, str):
+            return ""
+
+        patterns = [
+            r"(?:claim#|claim no\.?|claim number)\s*[:#]?\s*([A-Za-z0-9\-_/]+)",
+            r"(?:policy#|policy no\.?|policy number)\s*[:#]?\s*([A-Za-z0-9\-_/]+)",
+            r"(?:claim#/policy#)\s*[:#]?\s*([A-Za-z0-9\-_/]+)",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text, flags=re.IGNORECASE)
+            if m:
+                value = (m.group(1) or "").strip()
+                if value:
+                    return value
+        return ""
+
+    def _extract_claim_policy_from_claim_obj(self, claim: Dict) -> str:
+        """Extract policy from structured claim object with multiple possible key names."""
+        if not isinstance(claim, dict):
+            return ""
+
+        candidate_keys = [
+            "policy",
+            "policy_number",
+            "policy_no",
+            "claim_number",
+            "claim_no",
+            "claim#/policy#",
+            "claim_policy",
+        ]
+        for key in candidate_keys:
+            value = claim.get(key)
+            if value is None:
+                continue
+            value_str = str(value).strip()
+            if value_str:
+                return value_str
+
+        combined_text = " ".join(str(v) for v in claim.values() if v is not None)
+        return self._extract_claim_policy_from_text(combined_text)
+
+    def _extract_global_claim_policy_fallback(self, data: Dict) -> str:
+        """Best-effort global fallback when a claim-level policy is missing."""
+        if not isinstance(data, dict):
+            return ""
+
+        policy_info = data.get("policy_information")
+        if isinstance(policy_info, dict):
+            candidate = policy_info.get("property_policy_number")
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+        app_info = data.get("application_info")
+        if isinstance(app_info, dict):
+            previous = app_info.get("previous_insurance")
+            if isinstance(previous, dict):
+                candidate = previous.get("policy_number")
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate.strip()
+
+        return ""
     
     def save_json(self, data: Dict, output_path: str):
         """Save JSON to file"""
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
+        final_output_path = self._get_unique_output_path(output_path)
+        os.makedirs(os.path.dirname(final_output_path), exist_ok=True)
+        with open(final_output_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        print(f"\n[SUCCESS] JSON saved to: {output_path}")
+        print(f"\n[SUCCESS] JSON saved to: {final_output_path}")
+        return final_output_path
+
+    @staticmethod
+    def _get_unique_output_path(output_path: str) -> str:
+        """
+        Return a non-conflicting path.
+        If output_path exists, append '(1)', '(2)', ... before extension.
+        """
+        if not output_path or not os.path.exists(output_path):
+            return output_path
+
+        directory, filename = os.path.split(output_path)
+        base_name, ext = os.path.splitext(filename)
+        counter = 1
+        while True:
+            candidate = os.path.join(directory, f"{base_name}({counter}){ext}")
+            if not os.path.exists(candidate):
+                return candidate
+            counter += 1
 
     @staticmethod
     def _sanitize_filename(name: str) -> str:

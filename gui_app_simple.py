@@ -263,7 +263,7 @@ class MultiFileDropFrame(tk.Frame):
             yscrollcommand=scrollbar.set,
             height=4
         )
-        self.path_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # 初始不显示列表，等有文件时再 pack
         scrollbar.config(command=self.path_listbox.yview)
         
         # Placeholder label
@@ -387,7 +387,8 @@ class MultiFileDropFrame(tk.Frame):
             # Hide placeholder, show listbox
             if len(self.file_paths) == 1:
                 self.placeholder_label.pack_forget()
-                self.path_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, before=self.placeholder_label)
+                # 确保列表被显示（在自己的 list_frame 中 pack）
+                self.path_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
             # Update background
             self.config(bg=self.active_bg)
@@ -764,7 +765,7 @@ class IntactJSONGeneratorGUI:
                 output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "output"))
             applicant_filename = generator.get_applicant_filename(json_data)
             output_path = os.path.join(output_dir, f"{applicant_filename}.json")
-            generator.save_json(json_data, output_path)
+            output_path = generator.save_json(json_data, output_path)
             
             # Update UI in main thread
             self.root.after(0, self._generation_success, output_path)

@@ -84,7 +84,7 @@ def main():
         
         # Save JSON
         output_path = args.output
-        generator.save_json(json_data, output_path)
+        output_path = generator.save_json(json_data, output_path)
         
         print("\n" + "=" * 60)
         print("[SUCCESS] Process completed!")

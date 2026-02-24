@@ -598,7 +598,7 @@ class IntactJSONGeneratorGUI:
                 output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "output"))
             applicant_filename = generator.get_applicant_filename(json_data)
             output_path = os.path.join(output_dir, f"{applicant_filename}.json")
-            generator.save_json(json_data, output_path)
+            output_path = generator.save_json(json_data, output_path)
             
             # Update UI in main thread
             self.root.after(0, self._generation_success, output_path)
