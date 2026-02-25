@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 from typing import Dict, Optional
 from anthropic import Anthropic
+import requests
 
 # 添加父目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,7 +18,16 @@ from utils.document_reader import extract_text_from_documents
 class IntactJSONGenerator:
     """Generate JSON required for Intact upload from documents"""
     
-    def __init__(self, config_path: Optional[str] = None, company: str = "Intact"):
+    def __init__(
+        self,
+        config_path: Optional[str] = None,
+        company: str = "Intact",
+        mode: Optional[str] = None,
+        api_key: Optional[str] = None,
+        gateway_url: Optional[str] = None,
+        gateway_token: Optional[str] = None,
+        timeout_sec: Optional[int] = None
+    ):
         """
         Initialize generator
         
@@ -34,30 +44,49 @@ class IntactJSONGenerator:
         
         with open(config_path, 'r', encoding='utf-8') as f:
             self.config = json.load(f)
-        
-        self.client = Anthropic(api_key=self.config["api_key"])
+
+        self.mode = (mode or self.config.get("mode", "direct")).lower()
         self.model = self.config.get("model", "claude-sonnet-4-20250514")
         self.max_tokens = self.config.get("max_tokens", 4096)
         self.temperature = self.config.get("temperature", 0.1)
+        self.timeout_sec = int(timeout_sec or self.config.get("timeout_sec", 180))
+        self.gateway_url = gateway_url or self.config.get("gateway_url", "http://127.0.0.1:8080")
+        self.gateway_token = gateway_token or self.config.get("gateway_token", "")
         self.company = company
-        
-        # Load company-specific fields configuration
+
+        if self.mode == "gateway":
+            self.client = None
+        else:
+            resolved_api_key = api_key or self.config.get("api_key")
+            if not resolved_api_key:
+                raise ValueError("api_key is required when mode is 'direct'")
+            self.client = Anthropic(api_key=resolved_api_key)
+
+        self._load_fields_config(company)
+
+    def _load_fields_config(self, company: str):
+        """Load company-specific fields configuration."""
         fields_config_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "config",
             f"{company.lower()}_fields_config.json"
         )
-        
+
         if os.path.exists(fields_config_path):
             with open(fields_config_path, 'r', encoding='utf-8') as f:
                 self.fields_config = json.load(f)
         else:
-            # Use default/empty config if file doesn't exist
             self.fields_config = {
                 "company": company,
                 "description": f"{company} insurance JSON output format configuration",
                 "fields": {}
             }
+
+    def _set_company(self, company: Optional[str]):
+        """Switch company config when requested."""
+        if company and company != self.company:
+            self.company = company
+            self._load_fields_config(company)
     
     def _build_fields_prompt_section(self, fields_config: Dict) -> str:
         """Build prompt section from fields configuration"""
@@ -283,67 +312,96 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             Generated JSON dictionary
         """
         # Update company if provided
-        if company and company != self.company:
-            self.company = company
-            # Reload fields config for the new company
-            fields_config_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                "config",
-                f"{company.lower()}_fields_config.json"
-            )
-            if os.path.exists(fields_config_path):
-                with open(fields_config_path, 'r', encoding='utf-8') as f:
-                    self.fields_config = json.load(f)
+        self._set_company(company)
         # 1. Read all documents
         print("\n[Step 1] Reading documents...")
         documents = extract_text_from_documents(
             autoplus_path, autoplus_paths, quote_path, mvr_path, mvr_paths, application_form_path
         )
         print(f"[Step 1] Successfully read {len(documents)} document(s)")
-        
-        # 2. Build prompt
+        return self.generate_json_from_documents(documents, company=self.company)
+
+    def generate_json_from_documents(
+        self,
+        documents: Dict[str, str],
+        company: Optional[str] = None
+    ) -> Dict:
+        """Generate JSON from document texts."""
+        self._set_company(company)
+
         print("\n[Step 2] Building prompt...")
         prompt = self._build_prompt(documents)
-        
-        # 3. Call API
-        print("\n[Step 3] Calling Claude API...")
-        print(f"Using model: {self.model}")
+
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            )
-            
-            # 4. Parse response
-            print("[Step 3] API call successful!")
-            result_text = response.content[0].text
-            
-            # Try to extract JSON (if response contains other text)
-            try:
-                # Try direct parsing
-                result_json = json.loads(result_text)
-            except json.JSONDecodeError:
-                # If failed, try to extract JSON part
-                import re
-                json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
-                if json_match:
-                    result_json = json.loads(json_match.group())
-                else:
-                    raise ValueError("No valid JSON found in response")
-            
+            print("\n[Step 3] Calling model...")
+            print(f"Mode: {self.mode} | Company: {self.company} | Model: {self.model}")
+
+            if self.mode == "gateway":
+                result_json = self._call_gateway(documents)
+            else:
+                result_text = self._call_anthropic(prompt)
+                result_json = self._parse_response_json(result_text)
+
             print("[Step 4] JSON generated successfully!")
             return self._validate_and_clean_json(result_json)
-            
         except Exception as e:
             print(f"[ERROR] Failed to generate JSON: {e}")
             raise
+
+    def _call_anthropic(self, prompt: str) -> str:
+        """Call Anthropic API directly and return text response."""
+        if not self.client:
+            raise RuntimeError("Anthropic client is not initialized")
+
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+        print("[Step 3] API call successful!")
+        return response.content[0].text
+
+    def _call_gateway(self, documents: Dict[str, str]) -> Dict:
+        """Call internal gateway service and return JSON object."""
+        url = f"{self.gateway_url.rstrip('/')}/v1/generate-json"
+        headers = {"Content-Type": "application/json"}
+        if self.gateway_token:
+            headers["X-Internal-Token"] = self.gateway_token
+
+        payload = {
+            "company": self.company,
+            "documents": documents,
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout_sec)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Gateway request failed ({resp.status_code}): {resp.text}")
+
+        body = resp.json()
+        if not body.get("ok"):
+            raise RuntimeError(body.get("error", "Gateway returned failure"))
+        if "data" not in body:
+            raise RuntimeError("Gateway response missing data field")
+        return body["data"]
+
+    @staticmethod
+    def _parse_response_json(result_text: str) -> Dict:
+        """Parse model text response into JSON object."""
+        try:
+            return json.loads(result_text)
+        except json.JSONDecodeError:
+            json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+            raise ValueError("No valid JSON found in response")
     
     def _validate_and_clean_json(self, data: Dict) -> Dict:
         """Validate and clean generated JSON"""

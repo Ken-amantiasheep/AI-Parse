@@ -23,6 +23,15 @@ if not exist "config\config.json" (
     exit /b
 )
 
+REM Run preflight checks
+python preflight_check.py --config "config\config.json" --output-dir "output" --log-dir "logs"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Preflight checks failed.
+    pause
+    exit /b
+)
+
 REM Run GUI application
 python gui_app_simple.py
 

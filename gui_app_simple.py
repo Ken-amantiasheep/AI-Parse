@@ -20,6 +20,7 @@ except ImportError:
     print("Warning: tkinterdnd2 not available. Drag and drop will be disabled.")
 
 from utils.json_generator import IntactJSONGenerator
+from version import APP_VERSION
 
 
 class DocumentDropFrame(tk.Frame):
@@ -450,7 +451,7 @@ class IntactJSONGeneratorGUI:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("Intact JSON Generator")
+        self.root.title(f"Intact JSON Generator v{APP_VERSION}")
         self.root.geometry("900x750")
         self.root.resizable(True, True)
         self.root.configure(bg="#FFFFFF")
@@ -667,6 +668,7 @@ class IntactJSONGeneratorGUI:
             borderwidth=1
         )
         self.output_text.pack(fill=tk.BOTH, expand=True)
+        self.log(f"Version: {APP_VERSION}")
     
     def log(self, message):
         """Add message to output log"""

@@ -32,6 +32,15 @@ if not exist "config\config.json" (
     exit /b
 )
 
+REM Run preflight checks
+python preflight_check.py --config "config\config.json" --output-dir "output" --log-dir "logs"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Preflight checks failed.
+    pause
+    exit /b
+)
+
 echo Please drag and drop your document paths into the input box below, or type the path directly
 echo (At least one document is required)
 echo.

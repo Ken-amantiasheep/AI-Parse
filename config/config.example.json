@@ -1,4 +1,8 @@
 {
+  "mode": "gateway",
+  "gateway_url": "http://127.0.0.1:8080",
+  "gateway_token": "replace-with-internal-token",
+  "timeout_sec": 180,
   "api_key": "your-api-key-here",
   "model": "claude-sonnet-4-20250514",
   "max_tokens": 4096,

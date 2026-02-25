@@ -11,7 +11,8 @@ pip install -r requirements.txt
 ## 配置
 
 1. 复制 `config/config.example.json` 为 `config/config.json`
-2. 在 `config/config.json` 中填入你的 Anthropic API Key
+2. 共享部署推荐使用网关模式（`mode=gateway`），客户端不保存 Anthropic Key
+3. 如果使用直连模式（`mode=direct`），在 `config/config.json` 中填入 Anthropic API Key
 
 ## 使用
 
@@ -30,6 +31,12 @@ python main.py --autoplus path/to/autoplus.pdf --quote path/to/quote.pdf --mvr p
 - `--config`: 配置文件路径（可选，默认：config/config.json）
 
 **注意：** 至少需要提供一个文档路径。
+
+### 方法三：S 盘共享部署（推荐）
+
+1. 从 `S:\Uploading Team\current\start_gui.bat` 启动
+2. 启动前会自动进行 preflight 检查（目录可写、网关可达）
+3. 网关部署与发布回滚见 `DEPLOY_S_DRIVE.md`
 
 ### 方法二：将文档放入对应文件夹
 
