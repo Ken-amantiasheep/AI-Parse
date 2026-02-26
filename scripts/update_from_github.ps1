@@ -8,6 +8,16 @@ $ErrorActionPreference = "Stop"
 if ([string]::IsNullOrWhiteSpace($AppRoot)) {
     $AppRoot = Split-Path -Parent $PSScriptRoot
 }
+ 
+# Normalize path input from .bat (remove quotes/control chars, trim trailing slash)
+$AppRoot = "$AppRoot".Trim().Trim('"')
+$AppRoot = [regex]::Replace($AppRoot, "[\x00-\x1F]", "")
+$AppRoot = $AppRoot.TrimEnd("\", "/")
+
+if (-not (Test-Path -LiteralPath $AppRoot)) {
+    Write-Error "AppRoot does not exist: $AppRoot"
+    exit 1
+}
 
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path $PSScriptRoot "github_update_config.json"
@@ -73,10 +83,10 @@ $preserveFiles = @(
 
 foreach ($relPath in $preserveFiles) {
     $src = Join-Path $AppRoot $relPath
-    if (Test-Path $src) {
+    if (Test-Path -LiteralPath $src) {
         $dst = Join-Path $backupDir $relPath
         New-Item -Path (Split-Path $dst -Parent) -ItemType Directory -Force | Out-Null
-        Copy-Item $src $dst -Force
+        Copy-Item -LiteralPath $src -Destination $dst -Force
     }
 }
 
@@ -85,10 +95,10 @@ robocopy $repoRoot.FullName $AppRoot /E /NFL /NDL /NJH /NJS /NP | Out-Null
 
 foreach ($relPath in $preserveFiles) {
     $bak = Join-Path $backupDir $relPath
-    if (Test-Path $bak) {
+    if (Test-Path -LiteralPath $bak) {
         $dst = Join-Path $AppRoot $relPath
         New-Item -Path (Split-Path $dst -Parent) -ItemType Directory -Force | Out-Null
-        Copy-Item $bak $dst -Force
+        Copy-Item -LiteralPath $bak -Destination $dst -Force
     }
 }
 
