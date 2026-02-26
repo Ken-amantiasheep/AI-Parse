@@ -78,7 +78,10 @@ New-Item -Path $backupDir -ItemType Directory -Force | Out-Null
 
 $preserveFiles = @(
     "config\config.json",
-    "gateway_service\env"
+    "gateway_service\env",
+    "scripts\github_update_config.json",
+    "scripts\update_from_github.ps1",
+    "update_from_github.bat"
 )
 
 foreach ($relPath in $preserveFiles) {
