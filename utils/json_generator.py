@@ -273,16 +273,130 @@ class IntactJSONGenerator:
 ## Important Rules:
 {date_rule}
 {caa_claim_policy_rule}
-- Use null or empty string for missing information
-- For table-based fields, map values by strict column-header alignment. Never shift a value horizontally into a neighboring column when a cell is blank.
+- Use null (NOT empty string, NOT other values) for missing or blank information
 - Driver and vehicle keys must use numeric suffixes (driver_1, vehicle_1, etc.)
 - Extract convictions from MVR documents with date and description
 - If a conviction is for speeding, include the km/h field
 - Province codes must be standard Canadian abbreviations (ON, BC, AB, QC, etc.)
 
+## CRITICAL: Table Reading Method
+For ALL table-based fields, you MUST:
+1. FIRST identify the COLUMN HEADERS in the table
+2. THEN match each field to its corresponding column by HEADER NAME (not position)
+3. Extract ONLY the value directly under that header's column
+4. If a cell is blank, return null - DO NOT take values from adjacent columns
+
+This is especially important for the purchase information table - see detailed instructions below.
+
+## ⚠️ CRITICAL: Purchase Table Column Alignment - ABSOLUTE REQUIREMENT ⚠️
+
+**STOP AND READ THIS CAREFULLY BEFORE EXTRACTING PURCHASE FIELDS!**
+
+The purchase information is in a TABLE. Each column has a HEADER LABEL. You MUST match fields to columns by HEADER NAME, NOT by reading left-to-right!
+
+**VISUAL REPRESENTATION OF THE TABLE STRUCTURE:**
+
+```
+Column 1: [Purchase Condition]  →  purchase_condition
+Column 2: [Purchase Date]        →  purchase_date
+Column 3: [km at Purchase]       →  km_at_purchase
+Column 4: [List Price New]       →  list_price_new
+Column 5: [Purchase Price]       →  purchase_price
+Column 6: [Winter Tires]         →  winter_tires
+Column 7: [Parking at Night]      →  parking_at_night
+```
+
+**THE EXACT PROCESS YOU MUST FOLLOW:**
+
+For EACH field (km_at_purchase, list_price_new, purchase_price, etc.):
+
+1. **FIND THE COLUMN HEADER**: Search for the exact header text (e.g., "km at Purchase", "List Price New")
+2. **LOOK DIRECTLY BELOW THAT HEADER**: Read ONLY the cell that is directly under that specific header
+3. **CHECK IF CELL IS BLANK**: 
+   - If the cell directly under the header is EMPTY/BLANK → return null
+   - If the cell directly under the header has a value → use that value
+4. **DO NOT LOOK AT OTHER COLUMNS**: Even if you see a value nearby, if it's not directly under the correct header, ignore it!
+
+**THE MOST COMMON MISTAKE TO AVOID:**
+
+❌ **WRONG**: Reading left-to-right: "I see Used, then 03/05/2013, then 29705, so km_at_purchase = 29705"
+✅ **CORRECT**: Finding header "km at Purchase", looking directly below it, seeing it's blank, so km_at_purchase = null
+
+**CONCRETE EXAMPLE - THIS IS WHAT YOU WILL SEE:**
+
+The table row looks like this (values on top, headers below):
+```
+Row 1 (values):    Used    03/05/2013    29705    Yes    Private Driveway
+Row 2 (headers):   Purchase Purchase     km at   List    Purchase Winter Parking
+                   Condition Date         Purchase Price  Price    Tires  at Night
+```
+
+**CORRECT EXTRACTION PROCESS:**
+
+1. For `km_at_purchase`:
+   - Find header: "km at Purchase"
+   - Look directly below "km at Purchase" header
+   - See: BLANK/EMPTY cell
+   - Result: `km_at_purchase = null` ✅
+
+2. For `list_price_new`:
+   - Find header: "List Price New"
+   - Look directly below "List Price New" header
+   - See: "29705"
+   - Result: `list_price_new = "29705"` ✅
+
+3. For `purchase_price`:
+   - Find header: "Purchase Price"
+   - Look directly below "Purchase Price" header
+   - See: BLANK/EMPTY cell
+   - Result: `purchase_price = null` ✅
+
+**CRITICAL REMINDER:**
+- If you see "29705" but it's NOT directly under "km at Purchase" header → DO NOT use it for km_at_purchase!
+- If "km at Purchase" column is blank → km_at_purchase MUST be null, even if you see "29705" in the next column!
+- Each field reads from its OWN column only - never borrow from neighbors!
+
 Please carefully analyze all documents and extract accurate information to generate a complete JSON object. 
 
-IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks. Start your response directly with {{ and end with }}."""
+## DEBUG MODE: Extraction Reasoning
+To help debug extraction issues, please include an "_extraction_reasoning" field at the root level of your JSON with DETAILED explanations for purchase-related fields.
+
+**REQUIRED EXPLANATION FOR EACH FIELD:**
+
+For `km_at_purchase`:
+- Step 1: Describe how you found the "km at Purchase" column header in the table
+- Step 2: Describe what you saw directly below that header (was it blank? was there a value?)
+- Step 3: Explain your final decision (null or value) and WHY
+- Step 4: If you saw "29705" anywhere, explain WHERE you saw it and why you did or didn't use it for km_at_purchase
+
+For `list_price_new`:
+- Step 1: Describe how you found the "List Price New" column header in the table
+- Step 2: Describe what you saw directly below that header (was it blank? was there a value like "29705"?)
+- Step 3: Explain your final decision (null or value) and WHY
+- Step 4: If you saw "29705", explain WHERE you saw it and confirm it was under "List Price New" header
+
+Example format:
+```json
+{{
+  "_extraction_reasoning": {{
+    "km_at_purchase": "I searched for the column header 'km at Purchase' in the table. I found it in column 3. When I looked directly below this header, the cell was completely blank/empty. Therefore, I set km_at_purchase to null. I did see '29705' in the document, but it was in column 4 under 'List Price New' header, so I correctly did NOT use it for km_at_purchase.",
+    "list_price_new": "I searched for the column header 'List Price New' in the table. I found it in column 4. When I looked directly below this header, I saw the value '29705'. Therefore, I set list_price_new to '29705'. This value was directly under the 'List Price New' header, so it belongs to this field."
+  }},
+  ... rest of JSON ...
+}}
+```
+
+## FINAL REMINDER BEFORE YOU START EXTRACTING:
+
+**FOR PURCHASE TABLE FIELDS (km_at_purchase, list_price_new, purchase_price):**
+- Each field reads from its OWN column header ONLY
+- If a column is blank, that field = null (DO NOT borrow from next column!)
+- "29705" under "List Price New" header → list_price_new = "29705"
+- "29705" NOT under "km at Purchase" header → km_at_purchase = null (even if you see "29705" nearby!)
+
+**DO NOT READ LEFT-TO-RIGHT! MATCH BY HEADER NAME!**
+
+IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks outside the JSON. Start your response directly with {{ and end with }}."""
         
         return prompt
     
@@ -341,6 +455,21 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             else:
                 result_text = self._call_anthropic(prompt)
                 result_json = self._parse_response_json(result_text)
+
+            # Extract and display extraction reasoning if present
+            reasoning = result_json.pop("_extraction_reasoning", None)
+            if reasoning:
+                print("\n[DEBUG] Extraction Reasoning:")
+                print("=" * 60)
+                if isinstance(reasoning, dict):
+                    for field, explanation in reasoning.items():
+                        if explanation:
+                            print(f"\n{field}:")
+                            print(f"  {explanation}")
+                else:
+                    print(reasoning)
+                print("=" * 60)
+                print()
 
             print("[Step 4] JSON generated successfully!")
             return self._validate_and_clean_json(result_json)
@@ -542,11 +671,27 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         except ValueError:
             return None
 
+    @staticmethod
+    def _is_non_price_text(value) -> bool:
+        """Check if value is clearly non-price text (like parking locations, Yes/No, etc.)"""
+        if not isinstance(value, str):
+            return False
+        value_lower = value.strip().lower()
+        # Common non-price patterns
+        non_price_patterns = [
+            "private driveway", "private garage", "private street", "private lot", "private parking",
+            "street", "garage", "driveway", "parking",
+            "yes", "no", "new", "used", "demo"
+        ]
+        return value_lower in non_price_patterns
+
     def _apply_caa_vehicle_purchase_sanity(self, data: Dict):
         """
-        Correct common CAA table-column misalignment:
-        if purchase_condition is New, km_at_purchase is implausibly high (>=5000),
-        and list_price_new is missing, move km_at_purchase -> list_price_new.
+        Validate and fix obvious errors in purchase-related fields:
+        1. Clear non-price text from price fields (e.g., "Private Driveway" in purchase_price)
+        2. Ensure empty fields are null
+        3. Handle special case: if purchase_condition is New, km_at_purchase is implausibly high (>=5000),
+           and list_price_new is missing, move km_at_purchase -> list_price_new.
         """
         if not isinstance(data, dict):
             return data, 0
@@ -556,19 +701,42 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             return data, 0
 
         corrected = 0
-        for _, vehicle in vehicles.items():
+        for vehicle_key, vehicle in vehicles.items():
             if not isinstance(vehicle, dict):
                 continue
 
             condition = vehicle.get("purchase_condition")
             km_value = vehicle.get("km_at_purchase")
             list_price = vehicle.get("list_price_new")
+            purchase_price = vehicle.get("purchase_price")
 
-            km_int = self._extract_digits_as_int(km_value) if isinstance(km_value, str) else None
-            if condition == "New" and km_int is not None and km_int >= 5000 and self._is_missing(list_price):
-                vehicle["list_price_new"] = km_value
+            # Validate purchase_price: clear non-price text
+            if purchase_price is not None:
+                if self._is_non_price_text(purchase_price):
+                    print(f"[WARNING] Invalid purchase_price value '{purchase_price}' for vehicle '{vehicle_key}'. Setting to null.")
+                    vehicle["purchase_price"] = None
+                    corrected += 1
+                elif isinstance(purchase_price, str) and not purchase_price.strip():
+                    vehicle["purchase_price"] = None
+                    corrected += 1
+
+            # Validate list_price_new: clear non-price text
+            if list_price is not None:
+                if self._is_non_price_text(list_price):
+                    print(f"[WARNING] Invalid list_price_new value '{list_price}' for vehicle '{vehicle_key}'. Setting to null.")
+                    vehicle["list_price_new"] = None
+                    corrected += 1
+                elif isinstance(list_price, str) and not list_price.strip():
+                    vehicle["list_price_new"] = None
+                    corrected += 1
+
+            # Ensure empty km_at_purchase is null
+            if km_value is not None and isinstance(km_value, str) and not km_value.strip():
                 vehicle["km_at_purchase"] = None
                 corrected += 1
+
+            # Note: We do NOT auto-fix column misalignment here - the model should extract correctly from the start
+            # Only validate and clear obviously invalid values (non-price text in price fields)
 
         return data, corrected
 
@@ -577,7 +745,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         Apply CAA Auto Submission JSON post-processing rules on top of model output.
 
         Key goals:
-        - vehicles_information: no null purchase_price; drivers strings use '(PRN)'.
+        - vehicles_information: validate purchase_price (clear invalid values to null, allow null for empty fields); drivers strings use '(PRN)'.
         - drivers_information: claims/convictions/suspensions/lapses/vehicles are arrays;
           claims objects have required fields (policy, codes, tp_bi, tp_pd, ab, coll, other_pd).
         - discounts_information: driver_covered uses 'PRN' instead of 'Prn'.
@@ -599,14 +767,14 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                     if km_field in vehicle and vehicle[km_field] is None:
                         vehicle[km_field] = ""
 
-                # purchase_price: cannot be null, default to list_price_new or "0"
+                # purchase_price: validate existing value, but allow null for empty/invalid fields
+                # If the field was cleared due to invalid value (e.g., "Private Driveway"), keep it as null
                 purchase_price = vehicle.get("purchase_price")
-                if purchase_price is None:
-                    list_price = vehicle.get("list_price_new")
-                    if self._is_missing(list_price):
-                        vehicle["purchase_price"] = "0"
-                    else:
-                        vehicle["purchase_price"] = str(list_price)
+                if purchase_price is not None and self._is_non_price_text(purchase_price):
+                    # This should have been caught by _apply_caa_vehicle_purchase_sanity, but double-check
+                    print(f"[WARNING] Invalid purchase_price value '{purchase_price}' detected in normalization. Setting to null.")
+                    vehicle["purchase_price"] = None
+                # Note: If purchase_price is null (empty field or invalid value cleared), keep it as null - do not auto-fill
 
                 # drivers: normalize relationship code to '(PRN)' in uppercase
                 drivers_list = vehicle.get("drivers")

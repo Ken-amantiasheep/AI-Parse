@@ -529,7 +529,7 @@ class IntactJSONGeneratorGUI:
         company_label.pack(side=tk.LEFT, padx=(0, 10))
         
         # Company dropdown
-        self.company_var = tk.StringVar(value="Intact")
+        self.company_var = tk.StringVar(value="CAA")
         company_options = ["Intact", "CAA", "Aviva"]
         self.company_combo = ttk.Combobox(
             company_frame,

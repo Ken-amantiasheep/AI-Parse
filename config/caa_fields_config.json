@@ -385,14 +385,14 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract ONLY the value that is visually aligned under the 'km at Purchase' column for THIS specific vehicle. Use strict table column alignment by header label, not left-to-right guessing. Do NOT copy values from neighboring columns ('List Price New' or 'Purchase Price'). If the 'km at Purchase' cell is blank or unclear, return null.",
+          "extraction_logic": "CRITICAL: Find the column with header 'km at Purchase'. Look DIRECTLY below that header. If the cell is BLANK/EMPTY, return null. If the cell has a value, use that value. DO NOT read left-to-right. DO NOT take values from 'List Price New' column even if 'km at Purchase' is blank. If 'km at Purchase' column is blank, km_at_purchase MUST be null.",
           "description": "Kilometers at purchase (string type)"
         },
         "list_price_new": {
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract ONLY the value that is visually aligned under the 'List Price New' column for THIS specific vehicle. This is a price/amount field and may appear as plain digits without '$'. Use strict table column alignment by header label. Do NOT copy values from neighboring columns (especially 'km at Purchase'). If the 'List Price New' cell is blank or unclear, return null.",
+          "extraction_logic": "CRITICAL: Find the column with header 'List Price New'. Look DIRECTLY below that header. If the cell is BLANK/EMPTY, return null. If the cell has a value (like '29705'), use that value. DO NOT read left-to-right. DO NOT skip this column if 'km at Purchase' is blank - each column is independent. This is a PRICE field (digits like '29705', '25000').",
           "description": "List price new (string type, amount)"
         },
         "purchase_price": {
