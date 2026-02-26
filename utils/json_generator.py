@@ -735,6 +735,22 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                 vehicle["km_at_purchase"] = None
                 corrected += 1
 
+            # Swap logic: if list_price_new is null, purchase_price is null (after validation), and km_at_purchase has a value, swap them
+            km_value = vehicle.get("km_at_purchase")
+            list_price = vehicle.get("list_price_new")
+            purchase_price_after_validation = vehicle.get("purchase_price")
+            
+            if list_price is None or (isinstance(list_price, str) and not list_price.strip()):
+                # list_price_new is null or empty
+                if purchase_price_after_validation is None or (isinstance(purchase_price_after_validation, str) and not purchase_price_after_validation.strip()):
+                    # purchase_price is also null or empty after validation
+                    if km_value is not None and isinstance(km_value, str) and km_value.strip():
+                        # km_at_purchase has a value, swap them
+                        print(f"[INFO] Swapping fields for vehicle '{vehicle_key}': km_at_purchase='{km_value}' -> list_price_new, list_price_new=null -> km_at_purchase")
+                        vehicle["list_price_new"] = km_value
+                        vehicle["km_at_purchase"] = None
+                        corrected += 1
+
             # Note: We do NOT auto-fix column misalignment here - the model should extract correctly from the start
             # Only validate and clear obviously invalid values (non-price text in price fields)
 
