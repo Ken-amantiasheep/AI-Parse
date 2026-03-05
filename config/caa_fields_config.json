@@ -1044,7 +1044,7 @@
           "type": "string",
           "mode": "radio",
           "required": false,
-          "extraction_logic": "Extract CAA membership status from Application PDF. Look for patterns like 'Group discount apply: yes - CAA' or 'CAA' membership indicators. If 'Group discount apply: yes - CAA' is found, set to 'Yes'. If CAA membership number exists, set to 'Yes'. Otherwise, default to 'No'.",
+          "extraction_logic": "Extract CAA membership status from Application PDF or Quote PDF. Look for patterns like 'Group discount apply: yes - CAA' or 'CAA' membership indicators. If 'Group discount apply: yes - CAA' is found, set to 'Yes'. If CAA membership number exists, set to 'Yes'. CRITICAL: Only set to 'Yes' if you are confident CAA membership exists AND you can extract the membership number. Otherwise, default to 'No'.",
           "description": "CAA membership ('Yes' or 'No')",
           "options": ["Yes", "No"]
         },
@@ -1052,8 +1052,8 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract CAA membership number from Application PDF. Look for patterns like 'Group discount apply: yes - CAA | Member #: [NUMBER]' or 'Member #: [NUMBER]' or 'CAA Member #: [NUMBER]'. Extract the membership number (e.g., '620 2822 4256 53003' or '6202822425653003'). Remove spaces if present. If not found, return null.",
-          "description": "CAA membership number (string or null)"
+          "extraction_logic": "Extract CAA membership number from Application PDF or Quote PDF. Look for patterns like 'Group discount apply: yes - CAA | Member #: [NUMBER]' or 'Member #: [NUMBER]' or 'CAA Member #: [NUMBER]' or any similar membership number patterns. Extract the membership number (e.g., '620 2822 4256 53003' or '6202822425653003'). Remove spaces if present. CRITICAL RULE: If caa_membership is 'Yes', this field MUST be extracted and CANNOT be null or empty. You MUST search both Application PDF and Quote PDF thoroughly. If caa_membership is 'Yes' but you cannot find the number, re-examine the documents - the number MUST exist if membership is 'Yes'. If caa_membership is 'No', this field can be null or empty.",
+          "description": "CAA membership number (string or null). MANDATORY when caa_membership is 'Yes' - must be extracted from documents."
         },
         "effective_date": {
           "type": "string",

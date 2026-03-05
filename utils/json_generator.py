@@ -269,14 +269,23 @@ class IntactJSONGenerator:
 - For every individual claim item, copy the Policy value from the same claim block into claim.policy (or claim_number if only Claim# is present).
 - Do NOT leave claim.policy empty when Policy/Claim number exists in Autoplus text.
 - If Policy is not printed in that claim block, try Claim# in the same block; if both are missing, then fallback to a global policy number."""
+            caa_membership_rule = """- ⚠️ CRITICAL: CAA Membership Number Extraction Rule ⚠️
+- If caa_membership is set to "Yes", you MUST extract caa_membership_number from the Application PDF or Quote PDF.
+- When caa_membership is "Yes", caa_membership_number CANNOT be null or empty - you MUST search the documents thoroughly for the membership number.
+- Look for patterns like: "Group discount apply: yes - CAA | Member #: [NUMBER]", "Member #: [NUMBER]", "CAA Member #: [NUMBER]", or any similar membership number patterns.
+- Search in both Application PDF and Quote PDF if needed. The membership number may appear in various formats (with or without spaces).
+- If you set caa_membership to "Yes" but cannot find the membership number, you MUST re-examine the documents more carefully - the number MUST exist if membership is "Yes".
+- Only set caa_membership to "Yes" if you are confident that CAA membership exists, and in that case, you MUST also extract the membership number."""
         else:
             caa_claim_policy_rule = ""
+            caa_membership_rule = ""
 
         prompt += f"""
 
 ## Important Rules:
 {date_rule}
 {caa_claim_policy_rule}
+{caa_membership_rule}
 - Use null (NOT empty string, NOT other values) for missing or blank information
 - Driver and vehicle keys must use numeric suffixes (driver_1, vehicle_1, etc.)
 - Extract convictions from MVR documents with date and description
@@ -878,6 +887,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             # caa_membership: default to "No" instead of null
             if app_info.get("caa_membership") is None:
                 app_info["caa_membership"] = "No"
+            
             # avoid obvious nulls for strings we know are simple scalars
             for key in ("address", "phone", "caa_membership_number", "lessor"):
                 if key in app_info and app_info[key] is None:
