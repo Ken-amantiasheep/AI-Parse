@@ -264,7 +264,11 @@ class IntactJSONGenerator:
             date_rule = "- All dates must be in YYYY-MM-DD format"
 
         if self.company.upper() == "CAA":
-            caa_claim_policy_rule = "- For CAA claims, each claims item must include non-empty policy (Claim# / Policy#)."
+            caa_claim_policy_rule = """- For CAA claims, each claims item must include non-empty policy (Claim# / Policy#).
+- Claim policy must be extracted from Autoplus claims section (the claim block that contains Loss Date / Company / Source / Policy).
+- For every individual claim item, copy the Policy value from the same claim block into claim.policy (or claim_number if only Claim# is present).
+- Do NOT leave claim.policy empty when Policy/Claim number exists in Autoplus text.
+- If Policy is not printed in that claim block, try Claim# in the same block; if both are missing, then fallback to a global policy number."""
         else:
             caa_claim_policy_rule = ""
 

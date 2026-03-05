@@ -1044,7 +1044,7 @@
           "type": "string",
           "mode": "radio",
           "required": false,
-          "extraction_logic": "Extract CAA membership status from Application PDF. Default to 'No' if not found.",
+          "extraction_logic": "Extract CAA membership status from Application PDF. Look for patterns like 'Group discount apply: yes - CAA' or 'CAA' membership indicators. If 'Group discount apply: yes - CAA' is found, set to 'Yes'. If CAA membership number exists, set to 'Yes'. Otherwise, default to 'No'.",
           "description": "CAA membership ('Yes' or 'No')",
           "options": ["Yes", "No"]
         },
@@ -1052,7 +1052,7 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract CAA membership number from Application PDF.",
+          "extraction_logic": "Extract CAA membership number from Application PDF. Look for patterns like 'Group discount apply: yes - CAA | Member #: [NUMBER]' or 'Member #: [NUMBER]' or 'CAA Member #: [NUMBER]'. Extract the membership number (e.g., '620 2822 4256 53003' or '6202822425653003'). Remove spaces if present. If not found, return null.",
           "description": "CAA membership number (string or null)"
         },
         "effective_date": {
