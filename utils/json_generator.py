@@ -157,7 +157,22 @@ class IntactJSONGenerator:
                     
                     # Add extraction logic prominently
                     if field_extraction_logic:
-                        field_line += f"\n     → EXTRACTION LOGIC: {field_extraction_logic}"
+                        # Special emphasis for CAA membership fields
+                        if field_name in ("caa_membership", "caa_membership_number"):
+                            field_line += f"\n     ⚠️ CRITICAL FIELD - READ CAREFULLY ⚠️"
+                            field_line += f"\n     → EXTRACTION LOGIC: {field_extraction_logic}"
+                            field_line += f"\n     → IMPORTANT: Search for 'Group discount apply: yes - CAA' pattern. If found, caa_membership MUST be 'Yes' and caa_membership_number MUST be extracted."
+                        # Special emphasis for coverages_information to include OPCF options
+                        elif field_name == "coverages_information":
+                            field_line += f"\n     ⚠️ CRITICAL: This field includes BOTH standard coverages AND ALL OPCF options/protections ⚠️"
+                            field_line += f"\n     → EXTRACTION LOGIC: {field_extraction_logic}"
+                            field_line += f"\n     → MANDATORY CHECKLIST: Extract EVERY row from coverage/premium tables in Quote PDF, including:"
+                            field_line += f"\n       1. Standard coverages: 'Bodily Injury', 'Property Damage', 'All Perils', 'Accident Benefits', 'Direct Compensation', 'Uninsured Automobile'"
+                            field_line += f"\n       2. OPCF options: '#5 Rent or Lease', '#20 Loss of Use', '#27 Liab to Unowned Veh.', '#43a Limited Waiver', '#44 Family Protection'"
+                            field_line += f"\n       3. Protection options: 'Minor Conviction Protection', 'Forgive & Forget', and ANY other protection types you see"
+                            field_line += f"\n     → DO NOT SKIP ANY ROWS! Extract ALL coverages and protections found in the Quote PDF tables!"
+                        else:
+                            field_line += f"\n     → EXTRACTION LOGIC: {field_extraction_logic}"
                     
                     if field_description:
                         field_line += f"\n     → Description: {field_description}"
@@ -241,15 +256,46 @@ class IntactJSONGenerator:
         """Build detailed prompt"""
         prompt = f"""You are a professional insurance data extraction expert. Your task is to extract information from the provided documents and generate JSON data that meets the requirements for uploading to the {self.company} insurance system.
 
+## ⚠️ IMMEDIATE ACTION REQUIRED - READ THIS FIRST ⚠️
+
+Before reading the documents below, you MUST know this:
+
+**FOR CAA INSURANCE APPLICATIONS:**
+- There is a section called "CSIO APPLICATION FOR AUTOMOBILE INSURANCE - OAF1 - MEMO TEXT DETAILS" 
+- This section appears at the END of Application PDF documents
+- In this section, look for a line that says: "Group discount apply: yes - CAA | Member #: [NUMBER]"
+- If you find this line, you MUST:
+  1. Set `caa_membership` to "Yes"
+  2. Extract the number after "| Member #:" as `caa_membership_number`
+  3. Remove all spaces from the membership number
+
+**DO NOT SKIP THIS CHECK!** This information is critical and often appears in the last pages/sections of the Application PDF.
+
 ## Input Documents:
 """
         # Add document content (limit length to avoid too many tokens)
         for doc_name, content in documents.items():
-            # If content is too long, only take first 8000 characters
-            content_preview = content[:8000] if len(content) > 8000 else content
-            prompt += f"\n### {doc_name} Document:\n{content_preview}\n"
-            if len(content) > 8000:
-                prompt += f"[... document truncated, total length: {len(content)} characters ...]\n"
+            # For CAA, prioritize showing the end of Application PDF where MEMO TEXT DETAILS usually appears
+            if self.company.upper() == "CAA" and "application" in doc_name.lower():
+                # Show both beginning and end (where MEMO TEXT DETAILS is)
+                content_length = len(content)
+                if content_length > 16000:
+                    # Show first 4000 and last 12000 characters
+                    content_preview = content[:4000] + "\n\n[... middle section omitted ...]\n\n" + content[-12000:]
+                    prompt += f"\n### {doc_name} Document (showing beginning and END sections where MEMO TEXT DETAILS appears):\n{content_preview}\n"
+                elif content_length > 8000:
+                    # Show first 2000 and last 6000 characters
+                    content_preview = content[:2000] + "\n\n[... middle section omitted ...]\n\n" + content[-6000:]
+                    prompt += f"\n### {doc_name} Document (showing beginning and END sections where MEMO TEXT DETAILS appears):\n{content_preview}\n"
+                else:
+                    content_preview = content
+                    prompt += f"\n### {doc_name} Document:\n{content_preview}\n"
+            else:
+                # If content is too long, only take first 8000 characters
+                content_preview = content[:8000] if len(content) > 8000 else content
+                prompt += f"\n### {doc_name} Document:\n{content_preview}\n"
+                if len(content) > 8000:
+                    prompt += f"[... document truncated, total length: {len(content)} characters ...]\n"
         
         prompt += "\n## Output Requirements:\n\n"
         prompt += "Generate a JSON object with the following structure:\n\n"
@@ -269,18 +315,137 @@ class IntactJSONGenerator:
 - For every individual claim item, copy the Policy value from the same claim block into claim.policy (or claim_number if only Claim# is present).
 - Do NOT leave claim.policy empty when Policy/Claim number exists in Autoplus text.
 - If Policy is not printed in that claim block, try Claim# in the same block; if both are missing, then fallback to a global policy number."""
-            caa_membership_rule = """- ⚠️ CRITICAL: CAA Membership Number Extraction Rule ⚠️
-- If caa_membership is set to "Yes", you MUST extract caa_membership_number from the Application PDF or Quote PDF.
-- When caa_membership is "Yes", caa_membership_number CANNOT be null or empty - you MUST search the documents thoroughly for the membership number.
-- Look for patterns like: "Group discount apply: yes - CAA | Member #: [NUMBER]", "Member #: [NUMBER]", "CAA Member #: [NUMBER]", or any similar membership number patterns.
-- Search in both Application PDF and Quote PDF if needed. The membership number may appear in various formats (with or without spaces).
-- If you set caa_membership to "Yes" but cannot find the membership number, you MUST re-examine the documents more carefully - the number MUST exist if membership is "Yes".
-- Only set caa_membership to "Yes" if you are confident that CAA membership exists, and in that case, you MUST also extract the membership number."""
+            caa_membership_rule = """- ⚠️ CRITICAL: CAA Membership Extraction Rule ⚠️
+- THIS IS ONE OF THE MOST IMPORTANT FIELDS - DO NOT SKIP THIS CHECK!
+- SEARCH FOR THIS EXACT PATTERN: "Group discount apply: yes - CAA" - if you find this pattern ANYWHERE in the Application PDF or Quote PDF, you MUST set caa_membership to "Yes".
+- This pattern often appears in sections like "MEMO TEXT DETAILS", "CSIO APPLICATION FOR AUTOMOBILE INSURANCE - OAF1 - MEMO TEXT DETAILS", or similar memo/remarks/details sections.
+- The pattern may appear as: "Group discount apply: yes - CAA" or "Group discount apply: yes - CAA | Member #: [NUMBER]"
+- EXAMPLE: If you see "Group discount apply: yes - CAA | Member #: 620 2822 4256 53003", then:
+  * caa_membership MUST be "Yes" (NOT "No", NOT null)
+  * caa_membership_number MUST be extracted as "6202822425653003" (remove all spaces)
+- When caa_membership is "Yes", caa_membership_number CANNOT be null or empty - the number is ALWAYS on the SAME LINE as "Group discount apply: yes - CAA" after the "| Member #:" separator.
+- Search in both Application PDF and Quote PDF thoroughly, especially in memo/remarks/details sections. Use Ctrl+F or search function if needed.
+- The membership number format is typically digits with optional spaces (e.g., "620 2822 4256 53003" or "6202822425653003").
+- If you find "Group discount apply: yes - CAA" but the membership number seems missing, look more carefully on the same line - it's ALWAYS right there after "| Member #:" on the same line.
+- COMMON MISTAKE: Setting caa_membership to "No" when the pattern exists - DO NOT DO THIS! Always search first before setting to "No"."""
         else:
             caa_claim_policy_rule = ""
             caa_membership_rule = ""
 
         prompt += f"""
+
+## ⚠️ CRITICAL EXTRACTION CHECKLIST - READ THIS FIRST ⚠️
+
+Before extracting any fields, you MUST perform these checks:
+
+0. **COVERAGES EXTRACTION CHECK (MANDATORY - DO THIS FOR EVERY VEHICLE)**:
+   
+   **When extracting `coverages_information`, you MUST extract ALL rows from coverage/premium tables:**
+   
+   **Standard Coverages (always extract these):**
+   - Bodily Injury
+   - Property Damage
+   - Direct Compensation
+   - Accident Benefits
+   - All Perils
+   - Uninsured Automobile
+   
+   **OPCF Options (extract ALL you find, including but not limited to):**
+   - #5 Rent or Lease
+   - #20 Loss of Use
+   - #27 Liab to Unowned Veh.
+   - #43a Limited Waiver
+   - #44 Family Protection
+   - Any other options starting with #
+   
+   **Protection Options (extract ALL you find, including but not limited to):**
+   - Minor Conviction Protection
+   - Forgive & Forget
+   - Any other protection types in the table
+   
+   **CRITICAL RULE:**
+   - Look at EVERY row in coverage/premium tables in the Quote PDF
+   - Extract EVERY coverage and protection option you see
+   - Do NOT skip any rows - if it's in the table, it MUST be in your output
+   - Each option should have: principal, totals, and/or coverage_amount fields
+
+1. **CAA MEMBERSHIP CHECK (MANDATORY FIRST STEP - DO THIS BEFORE ANYTHING ELSE)**:
+   
+   **STEP 1: Search for the pattern**
+   - Use Ctrl+F or search function to find: "Group discount apply: yes - CAA"
+   - ⚠️ CRITICAL: Search in ALL documents, including:
+     * Application PDF (especially the LATER/END sections - this info often appears near the end of the document)
+     * Quote PDF (the pattern may ONLY appear in Quote PDF, not in Application PDF)
+     * ALL other provided documents
+   - ⚠️ IMPORTANT: Do NOT skip the later pages/sections of documents - this information is often found:
+     * Near the END of Application PDF documents
+     * In the middle or end sections of Quote PDF documents
+     * In sections that come AFTER the main form fields
+   - ⚠️ SPECIFIC LOCATION TO CHECK (THIS IS WHERE IT ALMOST ALWAYS APPEARS):
+     * Look for section header: "CSIO APPLICATION FOR AUTOMOBILE INSURANCE - OAF1 - MEMO TEXT DETAILS"
+     * This section appears at the END of Application PDF documents (after page 4 or 5, near the very end)
+     * In this section, you will see multiple lines of text like:
+       ```
+       Combined Policy / Multi-line discount: yes - Cross Ref: BINDER58154
+       Group discount apply: yes - CAA | Member #: 620 2822 4256 53003
+       Number of Telematics: 0
+       ```
+     * Search for the EXACT line: "Group discount apply: yes - CAA | Member #: [NUMBER]"
+     * The pattern is ALWAYS on a single line in this MEMO TEXT DETAILS section
+     * The membership number (e.g., "620 2822 4256 53003") is RIGHT THERE on the same line after "| Member #:"
+     * ⚠️ DO NOT MISS THIS! It's literally right there in the text!
+   - This pattern appears frequently in sections like:
+     * "MEMO TEXT DETAILS" (often near the end of Application PDF)
+     * "CSIO APPLICATION FOR AUTOMOBILE INSURANCE - OAF1 - MEMO TEXT DETAILS" (THIS IS THE MOST COMMON LOCATION!)
+     * Similar memo/remarks/details sections (typically in later pages)
+   
+   **STEP 2: If pattern is found**
+   - You MUST set `caa_membership` to "Yes" (NOT "No", NOT null)
+   - You MUST extract the membership number from the SAME LINE
+   - The pattern looks like: "Group discount apply: yes - CAA | Member #: 620 2822 4256 53003"
+   - ⚠️ CRITICAL: The membership number is ALWAYS on the SAME LINE, right after "| Member #:"
+   - Extract everything after "| Member #:" as the membership number (including spaces, you'll remove them later)
+   - Remove all spaces from the membership number before outputting
+   - Example extraction:
+     * Input line: "Group discount apply: yes - CAA | Member #: 620 2822 4256 53003"
+     * Extract: "620 2822 4256 53003"
+     * Remove spaces: "6202822425653003"
+     * Output: `caa_membership`: "Yes", `caa_membership_number`: "6202822425653003"
+   - ⚠️ REMEMBER: If you see "Group discount apply: yes - CAA" anywhere, the membership number MUST be on that same line!
+   
+   **STEP 3: If pattern is NOT found**
+   - Only after thoroughly searching ALL documents and confirming the pattern is absent
+   - Then set `caa_membership` to "No"
+   
+   **COMMON MISTAKES TO AVOID:**
+   - ❌ Setting `caa_membership` to "No" without searching ALL documents thoroughly
+   - ❌ Only searching the beginning of documents - the pattern is often in LATER sections
+   - ❌ Only searching Application PDF - the pattern may ONLY be in Quote PDF
+   - ❌ Missing the pattern because it's in a memo/details section near the end
+   - ❌ Setting to "Yes" but not extracting the membership number
+   - ❌ Extracting membership number with spaces (should remove spaces)
+   
+   **VERIFICATION & SELF-CHECK (CRITICAL - DO THIS BEFORE OUTPUTTING JSON):**
+   - Before finalizing your JSON, perform this self-check:
+     1. Did I search for "Group discount apply: yes - CAA" in ALL documents (including later sections)?
+     2. What did I set for `caa_membership`?
+     3. What did I set for `caa_membership_number`?
+   
+   - ⚠️ CRITICAL VALIDATION RULE ⚠️:
+     * If `caa_membership` is "Yes" BUT `caa_membership_number` is null, empty string, or missing:
+       → THIS IS INVALID! You MUST re-search the documents for the membership number
+       → The membership number MUST exist if membership is "Yes"
+       → Go back and search more carefully, especially in:
+         - Later sections of Application PDF
+         - All sections of Quote PDF
+         - Look for the pattern: "Group discount apply: yes - CAA | Member #: [NUMBER]"
+       → Extract the number from the SAME LINE as the pattern
+       → Only output JSON when `caa_membership_number` has a valid value (not empty)
+   
+   - If `caa_membership` is "Yes" → `caa_membership_number` MUST have a value (cannot be null or empty)
+   - If `caa_membership` is "No" → `caa_membership_number` can be null or empty
+   
+   - Final check before output: If caa_membership="Yes" and caa_membership_number is empty/null, STOP and re-search!
 
 ## Important Rules:
 {date_rule}
@@ -409,6 +574,30 @@ Example format:
 
 **DO NOT READ LEFT-TO-RIGHT! MATCH BY HEADER NAME!**
 
+## ⚠️ FINAL OUTPUT VALIDATION - CHECK THIS BEFORE RETURNING JSON ⚠️
+
+**MANDATORY CHECK FOR CAA MEMBERSHIP FIELDS:**
+
+Before outputting your final JSON, you MUST verify:
+
+1. Check `application_info.caa_membership` value:
+   - If it is "Yes":
+     * Check `application_info.caa_membership_number` value
+     * If `caa_membership_number` is null, empty string "", or missing:
+       → ⚠️ INVALID STATE! DO NOT OUTPUT THIS JSON!
+       → You MUST re-search the documents for the membership number
+       → Search for: "Group discount apply: yes - CAA | Member #: [NUMBER]"
+       → Look in later sections of Application PDF and all sections of Quote PDF
+       → Extract the number from the SAME LINE as the pattern
+       → Only output JSON when you have found and extracted the membership number
+   
+2. Final validation rule:
+   - ✅ VALID: `caa_membership: "Yes"` AND `caa_membership_number: "6202822425653003"` (has value)
+   - ✅ VALID: `caa_membership: "No"` AND `caa_membership_number: ""` or null (can be empty)
+   - ❌ INVALID: `caa_membership: "Yes"` AND `caa_membership_number: ""` or null (MUST re-search!)
+
+**If you find yourself about to output `caa_membership: "Yes"` with an empty `caa_membership_number`, STOP and re-search the documents!**
+
 IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks outside the JSON. Start your response directly with {{ and end with }}."""
         
         return prompt
@@ -485,7 +674,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                 print()
 
             print("[Step 4] JSON generated successfully!")
-            return self._validate_and_clean_json(result_json)
+            return self._validate_and_clean_json(result_json, documents)
         except Exception as e:
             print(f"[ERROR] Failed to generate JSON: {e}")
             raise
@@ -545,7 +734,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                 return json.loads(json_match.group())
             raise ValueError("No valid JSON found in response")
     
-    def _validate_and_clean_json(self, data: Dict) -> Dict:
+    def _validate_and_clean_json(self, data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
         """Validate and clean generated JSON"""
         # Ensure required fields exist
         required_fields = [
@@ -582,7 +771,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             if corrected_vehicles > 0:
                 print(f"[INFO] Corrected purchase table column misalignment in {corrected_vehicles} vehicle(s)")
             # 3) Enforce CAA Auto Submission JSON structure/rules
-            data = self._apply_caa_output_normalization(data)
+            data = self._apply_caa_output_normalization(data, documents)
         
         return data
 
@@ -769,7 +958,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
 
         return data, corrected
 
-    def _apply_caa_output_normalization(self, data: Dict) -> Dict:
+    def _apply_caa_output_normalization(self, data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
         """
         Apply CAA Auto Submission JSON post-processing rules on top of model output.
 
@@ -888,12 +1077,70 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             if app_info.get("caa_membership") is None:
                 app_info["caa_membership"] = "No"
             
+            # Normalize CAA membership number: remove spaces if present
+            if app_info.get("caa_membership") == "Yes":
+                membership_number = app_info.get("caa_membership_number")
+                if membership_number and isinstance(membership_number, str) and membership_number.strip():
+                    # Remove all spaces for consistency
+                    normalized_number = re.sub(r'\s+', '', membership_number)
+                    if normalized_number != membership_number:
+                        app_info["caa_membership_number"] = normalized_number
+                        print(f"[INFO] Normalized CAA membership number (removed spaces): {normalized_number}")
+            
             # avoid obvious nulls for strings we know are simple scalars
             for key in ("address", "phone", "caa_membership_number", "lessor"):
                 if key in app_info and app_info[key] is None:
                     app_info[key] = ""
 
         return data
+    
+    def _check_caa_membership_pattern_in_documents(self, documents: Dict[str, str]) -> bool:
+        """
+        Check if "Group discount apply: yes - CAA" pattern exists in documents.
+        Returns True if pattern is found, False otherwise.
+        """
+        # Combine all document texts
+        all_text = " ".join(documents.values())
+        
+        # Check for the pattern (case-insensitive, flexible whitespace)
+        pattern = r"Group\s+discount\s+apply:\s+yes\s+-\s+CAA"
+        match = re.search(pattern, all_text, re.IGNORECASE)
+        return match is not None
+    
+    def _extract_caa_membership_number_from_documents(self, documents: Dict[str, str]) -> Optional[str]:
+        """
+        Extract CAA membership number from documents using regex patterns.
+        Looks for patterns like "Group discount apply: yes - CAA | Member #: [NUMBER]"
+        """
+        # Combine all document texts
+        all_text = " ".join(documents.values())
+        
+        # Pattern 1: "Group discount apply: yes - CAA | Member #: [NUMBER]"
+        pattern1 = r"Group\s+discount\s+apply:\s+yes\s+-\s+CAA\s*\|\s*Member\s*#:\s*([0-9\s]+)"
+        match1 = re.search(pattern1, all_text, re.IGNORECASE)
+        if match1:
+            number = match1.group(1).strip()
+            # Remove spaces for consistency
+            number = re.sub(r'\s+', '', number)
+            return number if number else None
+        
+        # Pattern 2: "Member #: [NUMBER]" near "CAA" or "Group discount"
+        pattern2 = r"(?:Group\s+discount|CAA).*?Member\s*#:\s*([0-9\s]+)"
+        match2 = re.search(pattern2, all_text, re.IGNORECASE)
+        if match2:
+            number = match2.group(1).strip()
+            number = re.sub(r'\s+', '', number)
+            return number if number else None
+        
+        # Pattern 3: "CAA Member #: [NUMBER]"
+        pattern3 = r"CAA\s+Member\s*#:\s*([0-9\s]+)"
+        match3 = re.search(pattern3, all_text, re.IGNORECASE)
+        if match3:
+            number = match3.group(1).strip()
+            number = re.sub(r'\s+', '', number)
+            return number if number else None
+        
+        return None
 
     def _parse_caa_claim_string(self, claim_str: str, vehicle_keys, fallback_claim_policy: str = "") -> Dict:
         """

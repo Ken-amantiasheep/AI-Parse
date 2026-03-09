@@ -887,17 +887,17 @@
     },
     "coverages_information": {
       "required": true,
-      "description": "Coverage information - grouped by vehicle. Object with vehicle model names as keys. If no coverages found, return empty object {}. All amount fields (principal, totals, coverage_amount) are strings, not numbers.",
+      "description": "Coverage information - grouped by vehicle. Object with vehicle model names as keys. If no coverages found, return empty object {}. All amount fields (principal, totals, coverage_amount) are strings, not numbers. IMPORTANT: This section includes BOTH standard coverages AND OPCF options.",
       "type": "object",
       "key_format": "Vehicle model name (must exactly match vehicles_information keys, case-sensitive)",
-      "extraction_logic": "Extract coverage information from Quote PDF, grouped by vehicle. For each vehicle, use vehicle model name as key. Coverage type is key, value contains principal, totals, and/or coverage_amount. All three fields may exist, or some may be null, depending on coverage type and extraction result.",
+      "extraction_logic": "Extract ALL coverage information from Quote PDF, grouped by vehicle. This includes: (1) Standard coverages like 'Bodily Injury', 'Property Damage', 'All Perils', 'Accident Benefits', 'Direct Compensation', 'Uninsured Automobile'; (2) OPCF options and additional protections like '#5 Rent or Lease', '#20 Loss of Use', '#27 Liab to Unowned Veh.', '#43a Limited Waiver', '#44 Family Protection', 'Minor Conviction Protection', 'Forgive & Forget', etc. CRITICAL: Look for ALL rows in coverage/premium tables, including those with operator protection types. Extract EVERY coverage and protection option you see in the Quote PDF - do not skip any! For each vehicle, use vehicle model name as key. Coverage type or OPCF option name is key, value contains principal, totals, and/or coverage_amount. All three fields may exist, or some may be null, depending on coverage type and extraction result.",
       "fields": {
         "COVERAGE_TYPE": {
           "type": "object",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract coverage type as key. Examples: 'Bodily Injury', 'Property Damage', 'All Perils'. Value is object with principal, totals, and/or coverage_amount fields.",
-          "description": "Coverage type (e.g., 'Bodily Injury', 'Property Damage', 'All Perils')",
+          "extraction_logic": "Extract coverage type or OPCF option name as key. Examples of standard coverages: 'Bodily Injury', 'Property Damage', 'All Perils', 'Accident Benefits', 'Direct Compensation', 'Uninsured Automobile'. Examples of OPCF options and protections: '#5 Rent or Lease', '#20 Loss of Use', '#27 Liab to Unowned Veh.', '#43a Limited Waiver', '#44 Family Protection', 'Minor Conviction Protection', 'Forgive & Forget'. Value is object with principal, totals, and/or coverage_amount fields. CRITICAL CHECKLIST: When extracting, make sure you capture ALL rows from coverage/premium tables, including: (1) All standard coverages, (2) All OPCF options (those starting with #), (3) All protection options like 'Forgive & Forget', 'Minor Conviction Protection', etc. Do NOT skip any rows - extract EVERY coverage and protection option you see in the Quote PDF tables!",
+          "description": "Coverage type or OPCF option name (e.g., 'Bodily Injury', 'Property Damage', 'All Perils', '#20 Loss of Use', '#27 Liab to Unowned Veh.', '#43a Limited Waiver', '#44 Family Protection', 'Minor Conviction Protection')",
           "fields": {
             "principal": {
               "type": "string",
@@ -919,6 +919,45 @@
               "required": false,
               "extraction_logic": "Extract formatted coverage amount. Format: '1M', '1,000', '50K', etc. May be null if cannot be extracted from text.",
               "description": "Formatted coverage amount (string type, e.g., '1M', '1,000', '50K', may be null)"
+            }
+          }
+        }
+      }
+    },
+    "opcf_options": {
+      "required": false,
+      "description": "OPCF (Ontario Policy Change Form) options and additional coverages - extracted from Quote PDF. These are optional coverage options that appear in tables or lists in the quote document.",
+      "type": "object",
+      "key_format": "Vehicle model name (must exactly match vehicles_information keys, case-sensitive)",
+      "extraction_logic": "Extract OPCF options from Quote PDF, grouped by vehicle. Look for tables or lists containing OPCF options like '#5 Rent or Lease', '#20 Loss of Use', '#27 Liab to Unowned Veh.', '#43a Limited Waiver (Months)', etc. For each vehicle, use vehicle model name as key. Each option should be an object with option_name, value, and premium fields.",
+      "fields": {
+        "OPTION_NAME": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract OPCF option name as key. Examples: 'Rent or Lease', 'Loss of Use', 'Liab to Unowned Veh.', 'Limited Waiver (Months)'. Value is object with value, principal, and totals fields.",
+          "description": "OPCF option name (e.g., 'Rent or Lease', 'Loss of Use', 'Liab to Unowned Veh.', 'Limited Waiver (Months)')",
+          "fields": {
+            "value": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Extract the value/amount for this OPCF option. Examples: 'Inc.' (for Included), '1,500', '50K', '60' (for months). Convert abbreviations: K = thousands (50K = 50000). May be null if not found.",
+              "description": "Option value/amount (string type, e.g., 'Inc.', '1,500', '50K', '60', may be null)"
+            },
+            "principal": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Extract principal premium amount for this OPCF option. Format: '39', '31', '193', etc. May be null if not found.",
+              "description": "Principal premium amount (string type, e.g., '39', '31', '193', may be null)"
+            },
+            "totals": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Extract total premium amount for this OPCF option. Format: '39', '31', '193', etc. May be null if not found.",
+              "description": "Total premium amount (string type, e.g., '39', '31', '193', may be null)"
             }
           }
         }
@@ -1044,7 +1083,7 @@
           "type": "string",
           "mode": "radio",
           "required": false,
-          "extraction_logic": "Extract CAA membership status from Application PDF or Quote PDF. Look for patterns like 'Group discount apply: yes - CAA' or 'CAA' membership indicators. If 'Group discount apply: yes - CAA' is found, set to 'Yes'. If CAA membership number exists, set to 'Yes'. CRITICAL: Only set to 'Yes' if you are confident CAA membership exists AND you can extract the membership number. Otherwise, default to 'No'.",
+          "extraction_logic": "Extract CAA membership status from Application PDF or Quote PDF. CRITICAL: Search for the EXACT pattern 'Group discount apply: yes - CAA' (with or without '| Member #:' following it). IMPORTANT: This pattern often appears in LATER sections of documents - search the ENTIRE document, especially the END sections of Application PDF and ALL sections of Quote PDF. The pattern may ONLY appear in Quote PDF, not in Application PDF. It typically appears in MEMO TEXT DETAILS section or similar memo/remarks/details sections (often near the end of documents). If you find 'Group discount apply: yes - CAA' anywhere in ANY document, you MUST set caa_membership to 'Yes'. Also check for patterns like 'CAA | Member #:' or 'CAA Member #:' - if a CAA membership number exists, set to 'Yes'. Examples of patterns to look for: 'Group discount apply: yes - CAA', 'Group discount apply: yes - CAA | Member #: 620 2822 4256 53003'. If this pattern is found, caa_membership MUST be 'Yes'. Only set to 'No' if you have thoroughly searched ALL documents (including later sections) and found NO indication of CAA membership.",
           "description": "CAA membership ('Yes' or 'No')",
           "options": ["Yes", "No"]
         },
@@ -1052,7 +1091,7 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract CAA membership number from Application PDF or Quote PDF. Look for patterns like 'Group discount apply: yes - CAA | Member #: [NUMBER]' or 'Member #: [NUMBER]' or 'CAA Member #: [NUMBER]' or any similar membership number patterns. Extract the membership number (e.g., '620 2822 4256 53003' or '6202822425653003'). Remove spaces if present. CRITICAL RULE: If caa_membership is 'Yes', this field MUST be extracted and CANNOT be null or empty. You MUST search both Application PDF and Quote PDF thoroughly. If caa_membership is 'Yes' but you cannot find the number, re-examine the documents - the number MUST exist if membership is 'Yes'. If caa_membership is 'No', this field can be null or empty.",
+          "extraction_logic": "Extract CAA membership number from Application PDF or Quote PDF. CRITICAL: Look for the EXACT pattern 'Group discount apply: yes - CAA | Member #: [NUMBER]' where [NUMBER] is the membership number. IMPORTANT: This often appears in LATER sections of documents - search the ENTIRE document, especially the END sections of Application PDF and ALL sections of Quote PDF. The pattern may ONLY appear in Quote PDF. It typically appears in MEMO TEXT DETAILS section (often near the end of documents). The number may be formatted with spaces (e.g., '620 2822 4256 53003') or without spaces. Also search for patterns like 'Member #: [NUMBER]' when it appears near 'CAA' or 'Group discount apply: yes - CAA'. Extract the complete membership number. You may remove spaces for consistency (e.g., '6202822425653003'), but preserving spaces is also acceptable. CRITICAL RULE: If you find 'Group discount apply: yes - CAA' in ANY document (including later sections), you MUST also find and extract the membership number that follows it (usually on the same line after '| Member #:'). The number format is typically digits with optional spaces (e.g., '620 2822 4256 53003' or '6202822425653003'). If caa_membership is 'Yes', this field MUST be extracted and CANNOT be null or empty.",
           "description": "CAA membership number (string or null). MANDATORY when caa_membership is 'Yes' - must be extracted from documents."
         },
         "effective_date": {
