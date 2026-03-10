@@ -66,27 +66,61 @@ class IntactJSONGenerator:
 
     def _load_fields_config(self, company: str):
         """Load company-specific fields configuration."""
-        fields_config_path = os.path.join(
+        config_dir = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
-            "config",
-            f"{company.lower()}_fields_config.json"
+            "config"
         )
+        
+        # Map company names to config file names
+        # Support both old names (CAA, Intact) and new names (CAA_Auto, Intact_Auto, CAA_property)
+        company_lower = company.lower()
+        
+        # Try new naming convention first (e.g., caa_auto_fields_config.json, intact_auto_fields_config.json)
+        # or property variants (e.g., caa_property_fields_config.json)
+        if company_lower.endswith("_auto"):
+            # CAA_Auto -> caa_auto_fields_config.json
+            config_name = f"{company_lower}_fields_config.json"
+        elif company_lower.endswith("_property"):
+            # CAA_property -> caa_property_fields_config.json
+            config_name = f"{company_lower}_fields_config.json"
+        else:
+            # For backward compatibility: CAA -> caa_auto_fields_config.json, Intact -> intact_auto_fields_config.json
+            if company_lower == "caa":
+                config_name = "caa_auto_fields_config.json"
+            elif company_lower == "intact":
+                config_name = "intact_auto_fields_config.json"
+            else:
+                # Other companies: use original naming
+                config_name = f"{company_lower}_fields_config.json"
+        
+        fields_config_path = os.path.join(config_dir, config_name)
 
         if os.path.exists(fields_config_path):
             with open(fields_config_path, 'r', encoding='utf-8') as f:
                 self.fields_config = json.load(f)
         else:
-            self.fields_config = {
-                "company": company,
-                "description": f"{company} insurance JSON output format configuration",
-                "fields": {}
-            }
+            # Fallback: try old naming convention for backward compatibility
+            old_config_path = os.path.join(config_dir, f"{company_lower}_fields_config.json")
+            if os.path.exists(old_config_path):
+                with open(old_config_path, 'r', encoding='utf-8') as f:
+                    self.fields_config = json.load(f)
+            else:
+                self.fields_config = {
+                    "company": company,
+                    "description": f"{company} insurance JSON output format configuration",
+                    "fields": {}
+                }
 
     def _set_company(self, company: Optional[str]):
         """Switch company config when requested."""
         if company and company != self.company:
             self.company = company
             self._load_fields_config(company)
+    
+    def _is_caa_company(self) -> bool:
+        """Check if company is CAA-related (CAA, CAA_Auto, CAA_property, etc.)"""
+        company_upper = self.company.upper()
+        return company_upper == "CAA" or company_upper.startswith("CAA_")
     
     def _build_fields_prompt_section(self, fields_config: Dict) -> str:
         """Build prompt section from fields configuration"""
@@ -184,6 +218,226 @@ class IntactJSONGenerator:
         
         return "\n".join(sections)
     
+    def _build_property_format_requirements(self) -> str:
+        """Build critical format requirements section for property type"""
+        requirements = """
+## ⚠️ CRITICAL FORMAT REQUIREMENTS - MUST FOLLOW EXACTLY ⚠️
+
+### 1. application_info.prev_insurance.end_date Structure (CRITICAL)
+
+**❌ WRONG FORMAT**:
+```json
+"prev_insurance": {
+  "end_date": "2026-03-09"  // ❌ String format
+}
+```
+
+**✅ CORRECT FORMAT**:
+```json
+"prev_insurance": {
+  "end_date": {
+    "month": "03",    // Must be two-digit string "01"-"12"
+    "day": "09",      // Must be two-digit string "01"-"31"
+    "year": "2026"    // Must be four-digit string "2024", "2025", etc.
+  },
+  "policy_number": "P97270368HAB"
+}
+```
+
+**Conversion Rules**:
+- If date is "2026-03-09" format, split into: month: "03", day: "09", year: "2026"
+- If date is "03/09/2026" format, split into: month: "03", day: "09", year: "2026"
+- If date doesn't exist, set end_date to null but keep prev_insurance object structure
+
+### 2. coverages_information Structure (CRITICAL)
+
+**❌ WRONG FORMAT**:
+```json
+"coverages_information": {
+  "Residence": [...],
+  "Contents": [...]
+}
+```
+
+**✅ CORRECT FORMAT**:
+```json
+"coverages_information": [
+  {
+    "Residence": {
+      "Coverage A - Dwelling": {
+        "name": "Coverage A - Dwelling",
+        "deductible": null,
+        "amount": "$728,700",
+        "premium": "$1,956"
+      }
+    }
+  },
+  {
+    "Contents": {
+      "Outbuildings": {
+        "name": "Outbuildings",
+        "deductible": null,
+        "amount": "$145,740",
+        "premium": "Inc."
+      }
+    }
+  },
+  {
+    "Service Line Coverage": {
+      "Service Line": {
+        "name": "Service Line",
+        "deductible": "$1,000",
+        "amount": "$50,000",
+        "premium": "$150"
+      }
+    }
+  }
+]
+```
+
+**Rules**:
+- coverages_information MUST be an array [], NOT an object {}
+- Each array element is an object containing one coverage class name as key
+- Each coverage class value is an object containing multiple coverage items
+- Each coverage item must have: name (string), deductible (string | null), amount (string), premium (string)
+
+### 3. application_info Field Cleanup
+
+**❌ WRONG FORMAT**:
+```json
+"application_info": {
+  "membership": {
+    "caa_membership": "Yes",
+    "caa_membership_number": "6202822425653003"
+  },
+  "caa_membership": "No"  // ❌ Duplicate field
+}
+```
+
+**✅ CORRECT FORMAT**:
+```json
+"application_info": {
+  "membership": {
+    "caa_membership": "Yes",
+    "caa_membership_number": "6202822425653003"
+  }
+}
+```
+
+**Rules**: Do NOT have duplicate fields like caa_membership both in membership object and as top-level field.
+
+### 4. effective_date Format
+
+**✅ CORRECT FORMAT**:
+```json
+"effective_date": "2026-03-09"  // YYYY-MM-DD format string, NOT object
+```
+
+### 5. claims Array Default Value
+
+**✅ CORRECT FORMAT**:
+```json
+"claims": []  // If no claims, use empty array [], NOT null
+```
+
+### 6. secondary_dwelling_information Format
+
+**✅ CORRECT FORMAT**:
+```json
+"secondary_dwelling_information": null  // If not exists, use null
+```
+
+Or if exists:
+```json
+"secondary_dwelling_information": {
+  "dwelling_type": "Homeowners",
+  "location_and_coverage_information": {...},
+  "dwelling_information": {...},
+  // ... Same structure as primary_dwelling_information
+}
+```
+
+### 7. insured_information.name Format (CRITICAL)
+
+**❌ WRONG FORMAT**:
+```json
+"insured_information": {
+  "name": "Lin"  // ❌ Only one word, cannot separate first name and last name
+}
+```
+
+or
+
+```json
+"insured_information": {
+  "name": "John A"  // ❌ Last Name "A" only has 1 character, must be at least 2 characters
+}
+```
+
+**✅ CORRECT FORMAT**:
+```json
+"insured_information": {
+  "name": "Zi Qing Lin"  // ✅ At least 2 words, last word "Lin" has 2+ characters
+}
+```
+
+**Format Requirements**:
+- MUST contain at least TWO words (separated by spaces)
+- The LAST word is the Last Name and MUST be at least 2 characters
+- All words before the last word form the First Name (must be at least 1 character)
+- Can include middle names, which will be included in First Name
+- Normalize multiple spaces to single space
+- Remove special characters except hyphens
+
+**Name Parsing Logic**:
+- "Zi Qing Lin" → First Name: "Zi Qing", Last Name: "Lin" ✅
+- "John Smith" → First Name: "John", Last Name: "Smith" ✅
+- "Mary Jane Watson" → First Name: "Mary Jane", Last Name: "Watson" ✅
+
+**Validation Rules**:
+- [ ] name field contains at least two words (separated by spaces)
+- [ ] Last word (Last Name) has at least 2 characters
+- [ ] First word(s) (First Name) has at least 1 character
+- [ ] No special characters that cause parsing failure
+- [ ] Multiple spaces normalized to single space
+
+**Common Errors to Avoid**:
+- ❌ Single word name: "Lin" → Should be "Lin Lin" or infer from context
+- ❌ Last Name too short: "John A" → Last Name "A" only 1 char, need at least 2
+- ❌ Empty or whitespace-only: "" or "   " → Invalid
+
+**Special Cases**:
+- If PDF has only one word, add placeholder or infer from other fields
+- If Last Name is only 1 character, need to handle or mark
+- Names with prefixes (Mr., Mrs.) or suffixes (Jr., Sr.) should be handled appropriately
+
+## Validation Checklist
+
+Before outputting JSON, verify:
+- [ ] application_info.prev_insurance.end_date is object {month, day, year} NOT string
+- [ ] coverages_information is array [] NOT object {}
+- [ ] claims uses [] instead of null if no data
+- [ ] application_info has no duplicate fields
+- [ ] effective_date is YYYY-MM-DD format string
+- [ ] secondary_dwelling_information is null if not exists
+- [ ] All date fields use correct formats
+- [ ] insured_information.name contains at least TWO words (separated by spaces)
+- [ ] Last word of insured_information.name (Last Name) has at least 2 characters
+- [ ] coinsured_information.name (if exists) follows same format requirements
+
+## Common Errors to Avoid
+
+1. ❌ Do NOT set end_date as string "2026-03-09"
+2. ❌ Do NOT set coverages_information as object {}
+3. ❌ Do NOT set claims as null (use [])
+4. ❌ Do NOT have duplicate fields in application_info
+5. ❌ Do NOT set effective_date as object (should be string)
+6. ❌ Do NOT set insured_information.name as single word (must have at least 2 words)
+7. ❌ Do NOT set Last Name with only 1 character (must be at least 2 characters)
+
+"""
+        return requirements
+    
     def _get_default_fields_structure(self) -> str:
         """Get default fields structure (fallback)"""
         return """
@@ -276,7 +530,7 @@ Before reading the documents below, you MUST know this:
         # Add document content (limit length to avoid too many tokens)
         for doc_name, content in documents.items():
             # For CAA, prioritize showing the end of Application PDF where MEMO TEXT DETAILS usually appears
-            if self.company.upper() == "CAA" and "application" in doc_name.lower():
+            if self._is_caa_company() and "application" in doc_name.lower():
                 # Show both beginning and end (where MEMO TEXT DETAILS is)
                 content_length = len(content)
                 if content_length > 16000:
@@ -300,16 +554,20 @@ Before reading the documents below, you MUST know this:
         prompt += "\n## Output Requirements:\n\n"
         prompt += "Generate a JSON object with the following structure:\n\n"
         
+        # Add critical format requirements for property type
+        if self.company.endswith("_property"):
+            prompt += self._build_property_format_requirements()
+        
         # Build fields section from configuration
         fields_section = self._build_fields_prompt_section(self.fields_config)
         prompt += fields_section
         
-        if self.company.upper() == "CAA":
+        if self._is_caa_company():
             date_rule = "- For CAA, only date_of_birth fields must be MM/DD/YYYY. Do not force-convert other date fields."
         else:
             date_rule = "- All dates must be in YYYY-MM-DD format"
 
-        if self.company.upper() == "CAA":
+        if self._is_caa_company():
             caa_claim_policy_rule = """- For CAA claims, each claims item must include non-empty policy (Claim# / Policy#).
 - Claim policy must be extracted from Autoplus claims section (the claim block that contains Loss Date / Company / Source / Policy).
 - For every individual claim item, copy the Policy value from the same claim block into claim.policy (or claim_number if only Claim# is present).
@@ -533,6 +791,54 @@ Row 2 (headers):   Purchase Purchase     km at   List    Purchase Winter Parking
 - If you see "29705" but it's NOT directly under "km at Purchase" header → DO NOT use it for km_at_purchase!
 - If "km at Purchase" column is blank → km_at_purchase MUST be null, even if you see "29705" in the next column!
 - Each field reads from its OWN column only - never borrow from neighbors!
+
+## ⚠️ CRITICAL: Vehicle Information Table Column Alignment ⚠️
+
+**STOP AND READ THIS CAREFULLY BEFORE EXTRACTING VEHICLE BASIC INFORMATION FIELDS!**
+
+The vehicle information table contains fields like: Annual km, Business km, Daily km, Garaging Location, Single Vehicle MVD, Leased, Cylinders, etc.
+
+**THE EXACT PROCESS YOU MUST FOLLOW:**
+
+For EACH field (annual_km, business_km, daily_km, garaging_location, cylinders, etc.):
+
+1. **FIND THE COLUMN HEADER**: Search for the exact header text (e.g., "Daily km", "Cylinders")
+2. **LOOK DIRECTLY BELOW THAT HEADER**: Read ONLY the cell that is directly under that specific header
+3. **CHECK IF CELL IS BLANK**: 
+   - If the cell directly under the header is EMPTY/BLANK → return null (or empty string for km fields)
+   - If the cell directly under the header has a value → use that value
+4. **DO NOT SHIFT VALUES**: Even if a field is blank, DO NOT take values from adjacent columns!
+
+**COMMON MISTAKE TO AVOID:**
+
+❌ **WRONG**: "I see '4' after 'Daily km' header, so daily_km = '4'"
+   - But actually "4" is under "Cylinders" header, not "Daily km"!
+   - If "Daily km" column is blank → daily_km MUST be null/empty!
+
+✅ **CORRECT**: 
+   - Find header "Daily km" → Look directly below it → See BLANK → daily_km = null
+   - Find header "Cylinders" → Look directly below it → See "4" → cylinders = "4"
+
+**CONCRETE EXAMPLE:**
+
+Table structure:
+```
+Row 1 (values):    10000    (blank)    (blank)    ETOBICOKE M9W5X7    No    No    4
+Row 2 (headers):   Annual   Business   Daily      Garaging           Single Leased Cylinders
+                   km       km         km          Location            Vehicle MVD
+```
+
+**CORRECT EXTRACTION:**
+- annual_km: Find "Annual km" header → Below it: "10000" → annual_km = "10000" ✅
+- business_km: Find "Business km" header → Below it: BLANK → business_km = null ✅
+- daily_km: Find "Daily km" header → Below it: BLANK → daily_km = null ✅
+- garaging_location: Find "Garaging Location" header → Below it: "ETOBICOKE M9W5X7" → garaging_location = "ETOBICOKE M9W5X7" ✅
+- cylinders: Find "Cylinders" header → Below it: "4" → cylinders = "4" ✅
+
+**CRITICAL REMINDER:**
+- If "Daily km" column is blank → daily_km MUST be null/empty, even if you see "4" in the next column!
+- "4" belongs to "Cylinders" column, NOT "Daily km" column!
+- Each field reads from its OWN column only - never shift values from adjacent columns!
 
 Please carefully analyze all documents and extract accurate information to generate a complete JSON object. 
 
@@ -770,8 +1076,17 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             data, corrected_vehicles = self._apply_caa_vehicle_purchase_sanity(data)
             if corrected_vehicles > 0:
                 print(f"[INFO] Corrected purchase table column misalignment in {corrected_vehicles} vehicle(s)")
-            # 3) Enforce CAA Auto Submission JSON structure/rules
+            # 3) Fix vehicle information table column misalignment (daily_km, business_km, cylinders, etc.)
+            data, misalignment_fixes = self._fix_vehicle_table_column_misalignment(data)
+            if misalignment_fixes > 0:
+                print(f"[INFO] Fixed {misalignment_fixes} vehicle information table column misalignment issue(s)")
+            # 4) Enforce CAA Auto Submission JSON structure/rules
             data = self._apply_caa_output_normalization(data, documents)
+        
+        # Property-specific post-processing
+        if self.company.endswith("_property"):
+            data = self._normalize_property_names(data)
+            data = self._normalize_property_structure(data)
         
         return data
 
@@ -808,7 +1123,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
 
     def _should_apply_caa_dob_normalization(self, data: Dict) -> bool:
         """Apply CAA DOB normalization for explicit CAA mode or CAA-like output."""
-        if self.company.upper() == "CAA":
+        if self._is_caa_company():
             return True
 
         if not isinstance(data, dict):
@@ -956,6 +1271,66 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             # Note: We do NOT auto-fix column misalignment here - the model should extract correctly from the start
             # Only validate and clear obviously invalid values (non-price text in price fields)
 
+        return data, corrected
+    
+    def _fix_vehicle_table_column_misalignment(self, data: Dict):
+        """
+        Fix column misalignment issues in vehicle information table.
+        Common issue: when daily_km is blank, but a value from cylinders column is incorrectly extracted as daily_km.
+        
+        Detection logic:
+        - If daily_km is a single digit (like "4") and cylinders is also the same value, 
+          it's likely daily_km was incorrectly extracted from cylinders column
+        - If daily_km is a single digit but cylinders is different or missing, 
+          it might still be misaligned (daily_km should rarely be a single digit)
+        """
+        if not isinstance(data, dict):
+            return data, 0
+        
+        vehicles = data.get("vehicles_information")
+        if not isinstance(vehicles, dict):
+            return data, 0
+        
+        corrected = 0
+        for vehicle_key, vehicle in vehicles.items():
+            if not isinstance(vehicle, dict):
+                continue
+            
+            daily_km = vehicle.get("daily_km")
+            cylinders = vehicle.get("cylinders")
+            business_km = vehicle.get("business_km")
+            annual_km = vehicle.get("annual_km")
+            
+            # Check if daily_km looks suspicious (single digit that matches cylinders)
+            if daily_km is not None and isinstance(daily_km, str):
+                daily_km_clean = daily_km.strip()
+                
+                # If daily_km is a single digit (1-9) and matches cylinders, it's likely misaligned
+                if len(daily_km_clean) == 1 and daily_km_clean.isdigit():
+                    if cylinders is not None and str(cylinders).strip() == daily_km_clean:
+                        print(f"[WARNING] Vehicle '{vehicle_key}': daily_km='{daily_km}' matches cylinders='{cylinders}'. "
+                              f"This suggests column misalignment. Clearing daily_km.")
+                        vehicle["daily_km"] = None
+                        corrected += 1
+                    elif business_km is None or (isinstance(business_km, str) and not business_km.strip()):
+                        # If business_km is also empty, daily_km being a single digit is suspicious
+                        # (daily_km should typically be larger numbers or empty)
+                        print(f"[WARNING] Vehicle '{vehicle_key}': daily_km='{daily_km}' is a single digit "
+                              f"and business_km is empty. This suggests possible misalignment. Clearing daily_km.")
+                        vehicle["daily_km"] = None
+                        corrected += 1
+            
+            # Similar check for business_km (though less common)
+            if business_km is not None and isinstance(business_km, str):
+                business_km_clean = business_km.strip()
+                # If business_km is a single digit and matches cylinders, it's likely misaligned
+                if len(business_km_clean) == 1 and business_km_clean.isdigit():
+                    if cylinders is not None and str(cylinders).strip() == business_km_clean:
+                        print(f"[WARNING] Vehicle '{vehicle_key}': business_km='{business_km}' matches cylinders='{cylinders}'. "
+                              f"This suggests column misalignment. Clearing business_km.")
+                        vehicle["business_km"] = None
+                        corrected += 1
+        
         return data, corrected
 
     def _apply_caa_output_normalization(self, data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
@@ -1369,6 +1744,247 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                     return candidate.strip()
 
         return ""
+    
+    def _normalize_property_names(self, data: Dict) -> Dict:
+        """
+        Normalize name fields in property JSON to ensure they have at least 2 words
+        and last word (Last Name) has at least 2 characters.
+        """
+        if not isinstance(data, dict):
+            return data
+        
+        # Normalize insured_information.name
+        insured_info = data.get("insured_information")
+        if isinstance(insured_info, dict):
+            name = insured_info.get("name")
+            if isinstance(name, str):
+                original_name = name
+                normalized_name = self._normalize_name_field(name)
+                # Always update the name field to ensure it's cleaned (even if it looks correct)
+                insured_info["name"] = normalized_name
+                if normalized_name != original_name:
+                    print(f"[INFO] Normalized insured_information.name: '{original_name}' -> '{normalized_name}'")
+                
+                # Always validate and print debug info
+                self._validate_and_debug_name(normalized_name, "insured_information.name")
+        
+        # Normalize coinsured_information.name
+        coinsured_info = data.get("coinsured_information")
+        if isinstance(coinsured_info, dict):
+            name = coinsured_info.get("name")
+            if isinstance(name, str) and name.strip():
+                original_name = name
+                normalized_name = self._normalize_name_field(name)
+                # Always update the name field to ensure it's cleaned (even if it looks correct)
+                coinsured_info["name"] = normalized_name
+                if normalized_name != original_name:
+                    print(f"[INFO] Normalized coinsured_information.name: '{original_name}' -> '{normalized_name}'")
+                
+                # Always validate and print debug info
+                self._validate_and_debug_name(normalized_name, "coinsured_information.name")
+        
+        return data
+    
+    @staticmethod
+    def _normalize_name_field(name: str) -> str:
+        """
+        Normalize name field to ensure:
+        - At least 2 words separated by spaces
+        - Last word (Last Name) has at least 2 characters
+        - Multiple spaces normalized to single space
+        - Remove special characters and invisible characters
+        """
+        if not isinstance(name, str):
+            return name
+        
+        # Remove leading/trailing whitespace
+        name = name.strip()
+        
+        if not name:
+            return name
+        
+        # Remove invisible characters (zero-width spaces, etc.)
+        # Keep only printable characters, spaces, and hyphens
+        name = re.sub(r'[\u200B-\u200D\uFEFF]', '', name)  # Remove zero-width characters
+        name = re.sub(r'[^\w\s\-\.]', '', name)  # Keep only word chars, spaces, hyphens, dots
+        
+        # Normalize multiple spaces to single space
+        name = re.sub(r'\s+', ' ', name)
+        
+        # Remove leading/trailing spaces again after normalization
+        name = name.strip()
+        
+        if not name:
+            return name
+        
+        # Split into words
+        words = [w.strip() for w in name.split() if w.strip()]
+        
+        if len(words) == 0:
+            return name
+        
+        # Clean each word: remove non-word characters except hyphens
+        cleaned_words = []
+        for word in words:
+            # Keep word characters and hyphens
+            cleaned_word = re.sub(r'[^\w\-]', '', word)
+            if cleaned_word:  # Only add non-empty words
+                cleaned_words.append(cleaned_word)
+        
+        if len(cleaned_words) == 0:
+            return "Unknown Unknown"
+        
+        # If only one word after cleaning, duplicate it to create a valid name
+        if len(cleaned_words) == 1:
+            single_word = cleaned_words[0]
+            if len(single_word) >= 2:
+                return f"{single_word} {single_word}"
+            else:
+                # If less than 2 characters, pad it
+                return f"{single_word} {single_word.ljust(2, 'X')}"
+        
+        # Check if last word (Last Name) has at least 2 characters
+        last_word = cleaned_words[-1]
+        if len(last_word) < 2:
+            # If last word is too short, try to combine with previous word
+            if len(cleaned_words) >= 2:
+                # Use the second-to-last word as last name if it's longer
+                second_last = cleaned_words[-2]
+                if len(second_last) >= 2:
+                    # Use second-to-last as last name, combine rest (including the short last word) as first name
+                    first_name_parts = cleaned_words[:-2] + [last_word]
+                    first_name = ' '.join(first_name_parts) if first_name_parts else second_last
+                    return f"{first_name} {second_last}"
+                else:
+                    # Both are short, combine them as last name
+                    combined_last_name = second_last + last_word
+                    if len(combined_last_name) >= 2:
+                        first_name = ' '.join(cleaned_words[:-2]) if len(cleaned_words) > 2 else "Unknown"
+                        return f"{first_name} {combined_last_name}"
+                    else:
+                        # Pad the combined name
+                        padded_last = combined_last_name.ljust(2, 'X')
+                        first_name = ' '.join(cleaned_words[:-2]) if len(cleaned_words) > 2 else "Unknown"
+                        return f"{first_name} {padded_last}"
+            else:
+                # Only one word, should not reach here (handled above), but handle it
+                cleaned_words[-1] = last_word.ljust(2, 'X')
+        
+        # Final validation: ensure we have at least 2 words
+        if len(cleaned_words) < 2:
+            if len(cleaned_words) == 1:
+                single_word = cleaned_words[0]
+                if len(single_word) >= 2:
+                    return f"{single_word} {single_word}"
+                else:
+                    return f"{single_word} {single_word.ljust(2, 'X')}"
+            else:
+                return "Unknown Unknown"
+        
+        return ' '.join(cleaned_words)
+    
+    @staticmethod
+    def _validate_and_debug_name(name: str, field_name: str):
+        """
+        Validate name field and print debug information.
+        """
+        if not isinstance(name, str):
+            print(f"[WARNING] {field_name} is not a string: {type(name)}")
+            return
+        
+        name = name.strip()
+        if not name:
+            print(f"[WARNING] {field_name} is empty")
+            return
+        
+        # Split into words
+        words = name.split()
+        word_count = len(words)
+        
+        if word_count < 2:
+            print(f"[ERROR] {field_name} has only {word_count} word(s), need at least 2")
+            return
+        
+        # Extract first name and last name
+        first_name = ' '.join(words[:-1])
+        last_name = words[-1]
+        
+        # Check lengths
+        first_name_len = len(first_name)
+        last_name_len = len(last_name)
+        
+        # Print debug info
+        print(f"[DEBUG] {field_name} validation:")
+        print(f"  Original name: '{name}'")
+        print(f"  Word count: {word_count}")
+        print(f"  First Name: '{first_name}' (length: {first_name_len})")
+        print(f"  Last Name: '{last_name}' (length: {last_name_len})")
+        
+        # Validate
+        if first_name_len < 1:
+            print(f"  [ERROR] First Name is too short (length: {first_name_len}, need >= 1)")
+        
+        if last_name_len < 2:
+            print(f"  [ERROR] Last Name is too short (length: {last_name_len}, need >= 2)")
+        
+        # Check for special characters
+        if re.search(r'[^\w\s\-\.]', name):
+            print(f"  [WARNING] Name contains special characters")
+        
+        # Check for multiple spaces
+        if '  ' in name:
+            print(f"  [WARNING] Name contains multiple consecutive spaces")
+        
+        if first_name_len >= 1 and last_name_len >= 2:
+            print(f"  [OK] Name format is valid")
+    
+    def _normalize_property_structure(self, data: Dict) -> Dict:
+        """
+        Normalize property JSON structure to ensure:
+        - coverages_information is an array [] not an object {}
+        - application_info has no duplicate fields (e.g., caa_membership)
+        """
+        if not isinstance(data, dict):
+            return data
+        
+        # Fix coverages_information: must be array, not object
+        if "coverages_information" in data:
+            coverages = data["coverages_information"]
+            if isinstance(coverages, dict):
+                # If it's an empty object, convert to empty array
+                if len(coverages) == 0:
+                    data["coverages_information"] = []
+                    print("[INFO] Converted coverages_information from empty object {} to empty array []")
+                else:
+                    # If it has content, wrap it in an array
+                    # This shouldn't happen if AI follows instructions, but handle it gracefully
+                    print(f"[WARNING] coverages_information is an object with {len(coverages)} keys, converting to array format")
+                    # Try to convert object to array format
+                    # This is a fallback - ideally AI should generate array format directly
+                    coverage_array = []
+                    for key, value in coverages.items():
+                        coverage_array.append({key: value})
+                    data["coverages_information"] = coverage_array
+                    print(f"[INFO] Converted coverages_information object to array with {len(coverage_array)} elements")
+            elif not isinstance(coverages, list):
+                # If it's neither dict nor list, set to empty array
+                print(f"[WARNING] coverages_information is {type(coverages)}, converting to empty array []")
+                data["coverages_information"] = []
+        
+        # Remove duplicate caa_membership field in application_info
+        application_info = data.get("application_info")
+        if isinstance(application_info, dict):
+            # Check if both membership.caa_membership and caa_membership exist
+            membership = application_info.get("membership")
+            has_membership_caa = isinstance(membership, dict) and "caa_membership" in membership
+            has_direct_caa = "caa_membership" in application_info
+            
+            if has_membership_caa and has_direct_caa:
+                # Remove the duplicate direct caa_membership field
+                print(f"[INFO] Removing duplicate caa_membership field from application_info (keeping membership.caa_membership)")
+                del application_info["caa_membership"]
+        
+        return data
     
     def save_json(self, data: Dict, output_path: str):
         """Save JSON to file"""

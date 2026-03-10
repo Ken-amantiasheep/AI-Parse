@@ -1,6 +1,6 @@
 {
-  "company": "Intact",
-  "description": "Intact insurance JSON output format configuration",
+  "company": "Intact_Auto",
+  "description": "Intact Auto insurance JSON output format configuration",
   "fields": {
     "applicant_information": {
       "required": true,

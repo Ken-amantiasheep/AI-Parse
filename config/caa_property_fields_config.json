@@ -1,0 +1,717 @@
+{
+  "company": "CAA_property",
+  "description": "CAA Property insurance JSON output format configuration",
+  "document_types": ["quote", "application"],
+  "output_processing_notes": {
+    "date_formats": {
+      "policy_dates": "MM/DD/YYYY format (e.g., '01/15/2024')",
+      "effective_date": "YYYY-MM-DD format (e.g., '2024-01-15')",
+      "claim_dates": "MM/DD/YYYY format (e.g., '01/15/2024')",
+      "date_of_birth": "YYYY-MM-DD format (e.g., '1980-05-20')"
+    },
+    "null_values": "Use null (not empty string or empty object) when a field is not found or not applicable. For optional fields, null is acceptable. For required fields that cannot be found, use null but ensure the field exists in the output.",
+    "empty_arrays": "Use empty array [] (not null) when a list field has no items (e.g., claims, floaters). CRITICAL: claims field MUST use [] instead of null when there are no claims.",
+    "empty_objects": "Use empty object {} (not null) when an object field has no properties, unless the schema explicitly allows null"
+  },
+  "critical_format_requirements": {
+    "prev_insurance_end_date": {
+      "description": "CRITICAL: application_info.prev_insurance.end_date MUST be an object with month, day, year fields, NOT a string",
+      "wrong_format": "\"end_date\": \"2026-03-09\"",
+      "correct_format": {
+        "end_date": {
+          "month": "03",
+          "day": "09",
+          "year": "2026"
+        }
+      },
+      "conversion_rules": [
+        "If date is '2026-03-09' format, split into month: '03', day: '09', year: '2026'",
+        "If date is '03/09/2026' format, split into month: '03', day: '09', year: '2026'",
+        "month must be two-digit string '01'-'12'",
+        "day must be two-digit string '01'-'31'",
+        "year must be four-digit string like '2024', '2025', etc.",
+        "If date doesn't exist, set end_date to null but keep prev_insurance object structure"
+      ]
+    },
+    "coverages_information_structure": {
+      "description": "CRITICAL: coverages_information MUST be an array [], NOT an object {}",
+      "wrong_format": {
+        "coverages_information": {
+          "Residence": [],
+          "Contents": []
+        }
+      },
+      "correct_format": {
+        "coverages_information": [
+          {
+            "Residence": {
+              "Coverage A - Dwelling": {
+                "name": "Coverage A - Dwelling",
+                "deductible": null,
+                "amount": "$728,700",
+                "premium": "$1,956"
+              }
+            }
+          },
+          {
+            "Contents": {
+              "Outbuildings": {
+                "name": "Outbuildings",
+                "deductible": null,
+                "amount": "$145,740",
+                "premium": "Inc."
+              }
+            }
+          },
+          {
+            "Service Line Coverage": {
+              "Service Line": {
+                "name": "Service Line",
+                "deductible": "$1,000",
+                "amount": "$50,000",
+                "premium": "$150"
+              }
+            }
+          }
+        ]
+      },
+      "rules": [
+        "coverages_information must be an array []",
+        "Each array element is an object containing one coverage class name as key",
+        "Each coverage class value is an object containing multiple coverage items",
+        "Each coverage item must have: name (string), deductible (string | null), amount (string), premium (string)"
+      ]
+    },
+    "application_info_cleanup": {
+      "description": "Remove duplicate fields from application_info",
+      "wrong_format": {
+        "application_info": {
+          "membership": {
+            "caa_membership": "Yes",
+            "caa_membership_number": "6202822425653003"
+          },
+          "caa_membership": "No"
+        }
+      },
+      "correct_format": {
+        "application_info": {
+          "membership": {
+            "caa_membership": "Yes",
+            "caa_membership_number": "6202822425653003"
+          }
+        }
+      },
+      "rules": [
+        "Do not have duplicate fields like caa_membership both in membership object and as top-level field",
+        "Keep only the membership object structure"
+      ]
+    },
+    "effective_date_format": {
+      "description": "effective_date must be YYYY-MM-DD format string, NOT an object",
+      "correct_format": "\"effective_date\": \"2026-03-09\"",
+      "rules": [
+        "Must be string format YYYY-MM-DD",
+        "If application form has separate year, month, day fields, combine them into YYYY-MM-DD format"
+      ]
+    },
+    "claims_default_value": {
+      "description": "claims must use empty array [] instead of null",
+      "correct_format": "\"claims\": []",
+      "rules": [
+        "If no claims found, use empty array []",
+        "Never use null for claims field"
+      ]
+    },
+    "secondary_dwelling_format": {
+      "description": "secondary_dwelling_information format",
+      "if_not_exists": "\"secondary_dwelling_information\": null",
+      "if_exists": {
+        "secondary_dwelling_information": {
+          "dwelling_type": "Homeowners",
+          "location_and_coverage_information": {},
+          "dwelling_information": {},
+          "heating_information": {},
+          "security_information": {},
+          "preventative_measures_information": {},
+          "extended_coverages": {},
+          "claims": [],
+          "floaters": []
+        }
+      },
+      "rules": [
+        "If no secondary dwelling, use null",
+        "If exists, must have same structure as primary_dwelling_information",
+        "NOT nested in a 'secondary_dwelling' field"
+      ]
+    }
+  },
+  "validation_checklist": [
+    "application_info.prev_insurance.end_date is object {month, day, year} NOT string",
+    "coverages_information is array [] NOT object {}",
+    "claims uses [] instead of null if no data",
+    "application_info has no duplicate fields",
+    "effective_date is YYYY-MM-DD format string",
+    "secondary_dwelling_information is null if not exists",
+    "All date fields use correct formats"
+  ],
+  "common_errors_to_avoid": [
+    "Do NOT set end_date as string '2026-03-09'",
+    "Do NOT set coverages_information as object {}",
+    "Do NOT set claims as null (use [])",
+    "Do NOT have duplicate fields in application_info",
+    "Do NOT set effective_date as object (should be string)"
+  ],
+  "fields": {
+    "address": {
+      "required": true,
+      "description": "Extract from the top-right corner of the first page of the quote PDF. Look for address lines followed by city, province, and postal code. The address should be a street address with numbers and street name. Extract city, province, and postal code from the line immediately following the address. If quote does not have address or address is null, use application_info.address.",
+      "fields": {
+        "address": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Street address extracted from the address block. Should contain street number and street name. Priority: Quote PDF first page top-right corner > Application PDF if quote missing.",
+          "description": "Street address extracted from the address block"
+        },
+        "city": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "City name extracted from the address block. Should be the first part before comma in the city-province-postal line. Priority: Quote PDF first page top-right corner > Application PDF if quote missing.",
+          "description": "City name extracted from the address block"
+        },
+        "province": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Province abbreviation (e.g., ON, BC, AB) extracted from the address block. Priority: Quote PDF first page top-right corner > Application PDF if quote missing.",
+          "description": "Province abbreviation extracted from the address block"
+        },
+        "postal_code": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Canadian postal code format (e.g., K1A 0B1) extracted from the address block. Priority: Quote PDF first page top-right corner > Application PDF if quote missing.",
+          "description": "Canadian postal code format extracted from the address block"
+        }
+      }
+    },
+    "phone": {
+      "required": true,
+      "description": "CRITICAL: This field must be a STRING, not an object. Extract phone number from the address block on the first page of quote PDF. Look for labels like 'Home:', 'Mobile:', 'Work:', or 'Fax:' followed by phone numbers. Format as ###-###-#### or ###-###-#### x#### for extensions. Exclude company phone numbers. If quote has no phone, use application_info.phone.number. If still no phone found, use empty string ''. Priority: Quote PDF first page > Application PDF > empty string.",
+      "fields": {
+        "phone": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "CRITICAL: Extract phone number as STRING from phone object. Priority: 1) quote.phone.number if quote.phone exists and is an object, 2) quote.phone if quote.phone is already a string, 3) application_info.phone.number if application_info.phone exists, 4) empty string ''. The top-level phone field MUST be a string, NOT an object.",
+          "description": "Phone number as string (extracted from phone object's number field)"
+        }
+      }
+    },
+    "policy_information": {
+      "required": true,
+      "description": "Extract from the 'Policy Information' section at the beginning of the quote document. Look for sequential fields using regex patterns.",
+      "fields": {
+        "insured_since": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract date when the insured first became insured. Look for 'Insured Since' label. If the value equals 'Policy Information', set to null.",
+          "description": "Date when the insured first became insured"
+        },
+        "insured_with_brokerage_since": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract date when insured started with the brokerage. Look for 'Insured with Brokerage Since' label.",
+          "description": "Date when insured started with the brokerage"
+        },
+        "auto_insured_since": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract date when auto insurance started. Look for 'Auto - Insured Since' label.",
+          "description": "Date when auto insurance started"
+        },
+        "auto_current_insurer": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract current auto insurance company name. Look for 'Auto - Current Insurer' label.",
+          "description": "Current auto insurance company name"
+        },
+        "property_insured_since": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract date when property insurance started. Look for 'Property - Insured Since' label.",
+          "description": "Date when property insurance started"
+        },
+        "property_current_insurer": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract current property insurance company name. Look for 'Property - Current Insurer' label.",
+          "description": "Current property insurance company name"
+        },
+        "multi_line_policy": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract multi-line policy information. Look for 'Multi-Line Policy' label.",
+          "description": "Multi-line policy information"
+        },
+        "combined_policy": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract combined policy information. Look for 'Combined Policy' label.",
+          "description": "Combined policy information"
+        },
+        "multi_line_for_all_carriers": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract multi-line for all carriers information. Look for 'Multi-Line for all carriers' label.",
+          "description": "Multi-line for all carriers information"
+        },
+        "first_time_buyer": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract first-time buyer status. Look for 'First-Time Buyer' label.",
+          "description": "First-time buyer status"
+        }
+      }
+    },
+    "insured_information": {
+      "required": true,
+      "description": "Extract from the 'Insured Information' section. Parse sequential fields from lines split by newline characters.",
+      "fields": {
+        "name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "CRITICAL: Full name of the insured person. Extract from the first line after 'Insured Information' header. MUST contain at least TWO words separated by spaces. The LAST word is the Last Name (must be at least 2 characters). All words before the last word form the First Name (must be at least 1 character). Examples: 'Zi Qing Lin' → First Name: 'Zi Qing', Last Name: 'Lin'; 'John Smith' → First Name: 'John', Last Name: 'Smith'. If PDF only has one word, you must add a placeholder or infer from context. Normalize multiple spaces to single space. Remove special characters except hyphens.",
+          "description": "Full name of the insured person (must have at least 2 words, last word is Last Name with min 2 chars)"
+        },
+        "date_of_birth": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Date of birth of the insured. Look for 'Date of birth' label.",
+          "description": "Date of birth of the insured"
+        },
+        "gender": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Gender of the insured. Look for 'Gender' label.",
+          "description": "Gender of the insured"
+        },
+        "retired": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Retirement status. Look for 'Retired' label.",
+          "description": "Retirement status"
+        },
+        "occupation": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Occupation of the insured. Look for 'Occupation' label.",
+          "description": "Occupation of the insured"
+        },
+        "employer": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Employer name. Look for 'Employer' label.",
+          "description": "Employer name"
+        },
+        "date_hired": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Date hired at current employer. Look for 'Date Hired' label.",
+          "description": "Date hired at current employer"
+        },
+        "full_time": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Full-time employment status. Look for 'Full Time' label.",
+          "description": "Full-time employment status"
+        }
+      }
+    },
+    "coinsured_information": {
+      "required": true,
+      "description": "Extract from the 'Co-Insured Information' section. Parse fields using regex patterns. If name equals 'Co-Insured Information', set name to null.",
+      "fields": {
+        "name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Full name of the co-insured person. Extract from the first line after 'Co-Insured Information' header. If value equals 'Co-Insured Information', set to null.",
+          "description": "Full name of the co-insured person"
+        },
+        "date_of_birth": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Date of birth of the co-insured. Look for 'Date of birth' label.",
+          "description": "Date of birth of the co-insured"
+        },
+        "gender": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Gender of the co-insured. Look for 'Gender' label.",
+          "description": "Gender of the co-insured"
+        }
+      }
+    },
+    "primary_dwelling_information": {
+      "required": true,
+      "description": "Extract from the 'Primary Dwelling' section. First determine dwelling_type (Homeowners, Tenants, Condominiums, or Rented Dwelling), then extract sections accordingly. The structure varies based on dwelling type.",
+      "fields": {
+        "dwelling_type": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Type of dwelling: 'Homeowners', 'Tenants', 'Condominiums', or 'Rented Dwelling'. Extract from the line immediately following 'Primary Dwelling -'.",
+          "description": "Type of dwelling",
+          "options": ["Homeowners", "Tenants", "Condominiums", "Rented Dwelling"]
+        },
+        "location_and_coverage_information": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Location and coverage details. Fields vary by dwelling type. Extract from section between 'Primary Dwelling' and next section keyword. IMPORTANT: Extract ALL fields listed for the specific dwelling_type. Use regex patterns to find each field label and extract the value that follows it.",
+          "description": "Location and coverage details (varies by dwelling type)"
+        },
+        "dwelling_information": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Detailed dwelling information including construction, year built, occupancy, structure details, etc. Fields vary by dwelling type. IMPORTANT: Extract ALL fields listed for the specific dwelling_type. Use regex patterns to find each field label and extract the value that follows it.",
+          "description": "Detailed dwelling information (varies by dwelling type)"
+        },
+        "heating_information": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Heating system information. Extract from section between heating keywords. Look for: approved, year, renovated, type, chimney_type.",
+          "description": "Heating system information"
+        },
+        "security_information": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Security features of the dwelling. Fields vary by dwelling type. IMPORTANT: Extract ALL fields listed for the specific dwelling_type.",
+          "description": "Security features of the dwelling (varies by dwelling type)"
+        },
+        "preventative_measures_information": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Preventative measures for water damage. Extract from section before 'Auxiliary Power'. Look for: alarmed_sump_pump, sump_pump_pit, backup_backflow_valve, type, auxiliary_power.",
+          "description": "Preventative measures for water damage"
+        },
+        "extended_coverages": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extended coverage options. Extract from section after preventative measures. Look for 'Sewer Backup', 'Overland Water', 'Ground Water' sections. Each coverage type should have 'Amount' and 'Deductible' fields. Structure: {'Sewer Backup': {amount: string | null, deductible: string | null}, 'Overland Water': {amount: string | null, deductible: string | null}, 'Ground Water': {amount: string | null, deductible: string | null}}. If a coverage type is not present, you can omit the key or set it to null. Amount and deductible values should be strings (e.g., '$50,000', '$1,000') or null if not found.",
+          "description": "Extended coverage options with detailed structure",
+          "fields": {
+            "Sewer Backup": {
+              "type": "object",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Sewer Backup coverage information. Extract 'Amount' and 'Deductible' fields. If not present, set to null or omit.",
+              "description": "Sewer Backup coverage",
+              "fields": {
+                "amount": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": false,
+                  "extraction_logic": "Coverage amount as string (e.g., '$50,000'). If not found, set to null.",
+                  "description": "Coverage amount"
+                },
+                "deductible": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": false,
+                  "extraction_logic": "Deductible amount as string (e.g., '$1,000'). If not found, set to null.",
+                  "description": "Deductible amount"
+                }
+              }
+            },
+            "Overland Water": {
+              "type": "object",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Overland Water coverage information. Extract 'Amount' and 'Deductible' fields. If not present, set to null or omit.",
+              "description": "Overland Water coverage",
+              "fields": {
+                "amount": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": false,
+                  "extraction_logic": "Coverage amount as string (e.g., '$50,000'). If not found, set to null.",
+                  "description": "Coverage amount"
+                },
+                "deductible": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": false,
+                  "extraction_logic": "Deductible amount as string (e.g., '$1,000'). If not found, set to null.",
+                  "description": "Deductible amount"
+                }
+              }
+            },
+            "Ground Water": {
+              "type": "object",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Ground Water coverage information. Extract 'Amount' and 'Deductible' fields. If not present, set to null or omit.",
+              "description": "Ground Water coverage",
+              "fields": {
+                "amount": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": false,
+                  "extraction_logic": "Coverage amount as string (e.g., '$50,000'). If not found, set to null.",
+                  "description": "Coverage amount"
+                },
+                "deductible": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": false,
+                  "extraction_logic": "Deductible amount as string (e.g., '$1,000'). If not found, set to null.",
+                  "description": "Deductible amount"
+                }
+              }
+            }
+          }
+        },
+        "claims": {
+          "type": "array",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "List of previous claims. Extract from claims section if present. Each claim should have: type, date (MM/DD/YYYY format), amount. Parse from table format with 6 lines per claim. CRITICAL: If no claims are found, use empty array [] (NOT null).",
+          "description": "List of previous claims. Must be empty array [] if no claims, not null.",
+          "default_value": []
+        },
+        "floaters": {
+          "type": "array",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "List of floaters/endorsements. Extract from floaters section if present. Look for sections containing 'Name', 'Coverage Type', 'Deductible', 'Total Coverage'. Each floater should have these four fields.",
+          "description": "List of floaters/endorsements"
+        }
+      }
+    },
+    "secondary_dwelling_information": {
+      "required": false,
+      "description": "Extract from the 'Secondary Dwelling' section if present. Structure is IDENTICAL to primary_dwelling_information. If 'Secondary Dwelling' section does not exist, set to null. CRITICAL: secondary_dwelling_information must have the same structure as primary_dwelling_information (dwelling_type, location_and_coverage_information, dwelling_information, heating_information, security_information, preventative_measures_information, extended_coverages, claims, floaters), NOT nested in a 'secondary_dwelling' field.",
+      "fields": {
+        "dwelling_type": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Type of dwelling: 'Homeowners', 'Tenants', 'Condominiums', or 'Rented Dwelling'. Extract from the line immediately following 'Secondary Dwelling -'.",
+          "description": "Type of dwelling",
+          "options": ["Homeowners", "Tenants", "Condominiums", "Rented Dwelling"]
+        },
+        "location_and_coverage_information": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Location and coverage details. Fields vary by dwelling type. Extract from section between 'Secondary Dwelling' and next section keyword. IMPORTANT: Extract ALL fields listed for the specific dwelling_type. Use regex patterns to find each field label and extract the value that follows it.",
+          "description": "Location and coverage details (varies by dwelling type)"
+        },
+        "dwelling_information": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Detailed dwelling information including construction, year built, occupancy, structure details, etc. Fields vary by dwelling type. IMPORTANT: Extract ALL fields listed for the specific dwelling_type. Use regex patterns to find each field label and extract the value that follows it.",
+          "description": "Detailed dwelling information (varies by dwelling type)"
+        },
+        "heating_information": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Heating system information. Extract from section between heating keywords. Look for: approved, year, renovated, type, chimney_type.",
+          "description": "Heating system information"
+        },
+        "security_information": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Security features of the dwelling. Fields vary by dwelling type. IMPORTANT: Extract ALL fields listed for the specific dwelling_type.",
+          "description": "Security features of the dwelling (varies by dwelling type)"
+        },
+        "preventative_measures_information": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Preventative measures for water damage. Extract from section before 'Auxiliary Power'. Look for: alarmed_sump_pump, sump_pump_pit, backup_backflow_valve, type, auxiliary_power.",
+          "description": "Preventative measures for water damage"
+        },
+        "extended_coverages": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extended coverage options. Extract from section after preventative measures. Look for 'Sewer Backup', 'Overland Water', 'Ground Water' sections. Each coverage type should have 'Amount' and 'Deductible' fields. Structure: {'Sewer Backup': {amount: string | null, deductible: string | null}, 'Overland Water': {amount: string | null, deductible: string | null}, 'Ground Water': {amount: string | null, deductible: string | null}}. If a coverage type is not present, you can omit the key or set it to null. Amount and deductible values should be strings (e.g., '$50,000', '$1,000') or null if not found.",
+          "description": "Extended coverage options with detailed structure"
+        },
+        "claims": {
+          "type": "array",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "List of previous claims. Extract from claims section if present. Each claim should have: type, date (MM/DD/YYYY format), amount. Parse from table format with 6 lines per claim. CRITICAL: If no claims are found, use empty array [] (NOT null).",
+          "description": "List of previous claims. Must be empty array [] if no claims, not null.",
+          "default_value": []
+        },
+        "floaters": {
+          "type": "array",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "List of floaters/endorsements. Extract from floaters section if present. Look for sections containing 'Name', 'Coverage Type', 'Deductible', 'Total Coverage'. Each floater should have these four fields.",
+          "description": "List of floaters/endorsements"
+        }
+      }
+    },
+    "coverages_information": {
+      "type": "array",
+      "mode": "free_text",
+      "required": true,
+      "description": "Extract coverage tables from all pages of the PDF. Look for tables containing keywords: 'Coverage', 'Deductible', 'Amount', 'Premium', 'Annual Premium'. Tables should have 4 columns. Group coverages by class (Contents, Residence, Legal Liability, Extended Coverages, Floaters, etc.). Each coverage class contains multiple coverages with name, deductible, amount, and premium.",
+      "extraction_logic": "CRITICAL: coverages_information MUST be a direct array, NOT nested in a 'coverages' field. Structure: array of objects, where each object is a dictionary with coverage class names as keys and coverage dictionaries as values. Each coverage has: name (string), deductible (string | null), amount (string), premium (string). Example structure: [{'Residence': {'Coverage A - Dwelling': {name: 'Coverage A - Dwelling', deductible: null, amount: '$500,000', premium: '$1,200'}}}, {'Service Line Coverage': {'Service Line': {name: 'Service Line', deductible: '$1,000', amount: '$50,000', premium: '$150'}}}]. Extract ALL coverage rows from ALL pages of the quote PDF. The output JSON should have 'coverages_information' as a direct array, like: {'coverages_information': [{...}, {...}]}",
+      "example": [
+        {
+          "Residence": {
+            "Coverage A - Dwelling": {
+              "name": "Coverage A - Dwelling",
+              "deductible": null,
+              "amount": "$500,000",
+              "premium": "$1,200"
+            }
+          }
+        },
+        {
+          "Service Line Coverage": {
+            "Service Line": {
+              "name": "Service Line",
+              "deductible": "$1,000",
+              "amount": "$50,000",
+              "premium": "$150"
+            }
+          }
+        }
+      ]
+    },
+    "application_info": {
+      "required": true,
+      "description": "Information extracted from the application PDF. This section contains address, phone, effective_date, membership, and prev_insurance.",
+      "fields": {
+        "address": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Address from application form. Extract from home application section. Structure: {address, city, province, postal_code}.",
+          "description": "Address from application form"
+        },
+        "phone": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Phone number from application form. Format as {type: 'Home', number: '###-###-####'} or {type: 'Home', number: '###-###-#### x####'} for extensions. If phone is empty or invalid (less than 10 digits), set to null.",
+          "description": "Phone number from application form (object format)"
+        },
+        "effective_date": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Policy effective date MUST be in 'YYYY-MM-DD' format (e.g., '2024-01-15'). Extract from application form. If the application form has separate year, month, and day fields, combine them into YYYY-MM-DD format. The output MUST be a string in YYYY-MM-DD format, NOT an object.",
+          "description": "Policy effective date in YYYY-MM-DD format (string, not object)"
+        },
+        "membership": {
+          "type": "object",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "CAA membership information. Extract from policy notes/remarks section. Look for 'Group discount apply:' and 'Group discount apply: yes -' keywords. If both indicate 'Yes' and 'CAA', extract membership number from 'Member #:' field.",
+          "description": "CAA membership information",
+          "fields": {
+            "caa_membership": {
+              "type": "string",
+              "mode": "radio",
+              "required": true,
+              "extraction_logic": "CAA membership status: 'Yes' or 'No'. Check if 'Group discount apply:' equals 'Yes' (case-insensitive) and 'Group discount apply: yes -' equals 'CAA' (case-insensitive).",
+              "description": "CAA membership status",
+              "options": ["Yes", "No"]
+            },
+            "caa_membership_number": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "CAA membership number. Extract from 'Member #:' field if membership is 'Yes'. Remove all spaces from the number. If no membership, set to null.",
+              "description": "CAA membership number"
+            }
+          }
+        },
+        "prev_insurance": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Previous insurance information. Extract from application form using process_home function. CRITICAL: This object must have the exact structure defined below. If information is not available, set fields to null but keep the structure.",
+          "description": "Previous insurance information with required structure",
+          "fields": {
+            "end_date": {
+              "type": "object",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Previous policy expiry date. Extract from application form. If not available, set to null but keep the structure with month, day, year fields.",
+              "description": "Previous policy expiry date",
+              "fields": {
+                "month": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Month in MM format (e.g., '01', '12'). Extract from expiry date. If not found, use null.",
+                  "description": "Month in MM format (two digits)"
+                },
+                "day": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Day in DD format (e.g., '01', '31'). Extract from expiry date. If not found, use null.",
+                  "description": "Day in DD format (two digits)"
+                },
+                "year": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Year in YYYY format (e.g., '2024', '2025'). Extract from expiry date. If not found, use null.",
+                  "description": "Year in YYYY format (four digits)"
+                }
+              }
+            },
+            "policy_number": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Previous policy number from application form. Extract from previous insurance section. If not found, set to null.",
+              "description": "Previous policy number"
+            }
+          }
+        }
+      }
+    }
+  }
+}

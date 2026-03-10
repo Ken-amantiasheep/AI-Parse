@@ -342,8 +342,8 @@ class IntactJSONGeneratorGUI:
         company_label.pack(side=tk.LEFT, padx=(0, 10))
         
         # Company dropdown
-        self.company_var = tk.StringVar(value="CAA")
-        company_options = ["Intact", "CAA", "Aviva"]
+        self.company_var = tk.StringVar(value="CAA_Auto")
+        company_options = ["Intact_Auto", "CAA_Auto", "CAA_property", "Aviva"]
         self.company_combo = ttk.Combobox(
             company_frame,
             textvariable=self.company_var,
@@ -469,6 +469,10 @@ class IntactJSONGeneratorGUI:
         )
         self.output_text.pack(fill=tk.BOTH, expand=True, pady=5)
         
+        # Initialize document frame visibility based on default company
+        # Must be called after output_text is created
+        self.on_company_change()
+        
         # Configure root window for drag and drop
         try:
             import tkinterdnd2 as tkdnd
@@ -510,7 +514,26 @@ class IntactJSONGeneratorGUI:
     def on_company_change(self, event=None):
         """Handle company selection change"""
         selected_company = self.company_var.get()
-        self.log(f"Company changed to: {selected_company}")
+        
+        # Only log if output_text exists (avoid error during initialization)
+        if hasattr(self, 'output_text'):
+            self.log(f"Company changed to: {selected_company}")
+        
+        # Show/hide document frames based on company type
+        is_property = selected_company.endswith("_property")
+        
+        if is_property:
+            # Property type: only show quote and application
+            self.autoplus_frame.grid_remove()
+            self.mvr_frame.grid_remove()
+            self.quote_frame.grid()
+            self.app_form_frame.grid()
+        else:
+            # Auto type: show all 4 frames
+            self.autoplus_frame.grid()
+            self.quote_frame.grid()
+            self.mvr_frame.grid()
+            self.app_form_frame.grid()
 
     def select_output_folder(self):
         """Select output folder for generated JSON"""
@@ -539,26 +562,45 @@ class IntactJSONGeneratorGUI:
         selected_company = self.company_var.get()
         
         # Check if company output type is configured
-        if selected_company in ["CAA", "Aviva"]:
+        if selected_company == "Aviva":
             messagebox.showinfo(
                 "Output Type Not Configured",
                 "Output type not yet configured"
             )
             return
         
-        # Get file paths
-        autoplus_paths = self.autoplus_frame.get_files()
-        quote_path = self.quote_frame.get_file()
-        mvr_paths = self.mvr_frame.get_files()
-        app_form_path = self.app_form_frame.get_file()
+        # Check if property type
+        is_property = selected_company.endswith("_property")
         
-        # Check if at least one file is selected
-        if not any([autoplus_paths, quote_path, mvr_paths, app_form_path]):
-            messagebox.showwarning(
-                "No Documents",
-                "Please select at least one document to generate JSON."
-            )
-            return
+        if is_property:
+            # Property type: only quote and application
+            quote_path = self.quote_frame.get_file()
+            app_form_path = self.app_form_frame.get_file()
+            
+            # Check if required files are selected
+            if not quote_path or not app_form_path:
+                messagebox.showwarning(
+                    "Missing Documents",
+                    "Please select both Quote Document and Application Form for property insurance."
+                )
+                return
+            
+            autoplus_paths = None
+            mvr_paths = None
+        else:
+            # Auto type: all documents
+            autoplus_paths = self.autoplus_frame.get_files()
+            quote_path = self.quote_frame.get_file()
+            mvr_paths = self.mvr_frame.get_files()
+            app_form_path = self.app_form_frame.get_file()
+            
+            # Check if at least one file is selected
+            if not any([autoplus_paths, quote_path, mvr_paths, app_form_path]):
+                messagebox.showwarning(
+                    "No Documents",
+                    "Please select at least one document to generate JSON."
+                )
+                return
         
         # Disable button and start progress
         self.generate_btn.config(state=tk.DISABLED)

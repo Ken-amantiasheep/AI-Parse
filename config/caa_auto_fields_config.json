@@ -1,6 +1,6 @@
 {
-  "company": "CAA",
-  "description": "CAA insurance JSON output format configuration",
+  "company": "CAA_Auto",
+  "description": "CAA Auto insurance JSON output format configuration",
   "version": "2.0",
   "special_notes": {
     "date_format": "Most date fields use MM/DD/YYYY format, except application_info.effective_date which uses YYYY-MM-DD",
