@@ -917,8 +917,8 @@
               "type": "string",
               "mode": "free_text",
               "required": false,
-              "extraction_logic": "Extract formatted coverage amount. Format: '1M', '1,000', '50K', etc. May be null if cannot be extracted from text.",
-              "description": "Formatted coverage amount (string type, e.g., '1M', '1,000', '50K', may be null)"
+              "extraction_logic": "Extract formatted coverage amount. CRITICAL FORMAT REQUIREMENTS: (1) Do NOT include $ symbol (use '1,000,000' NOT '$1,000,000'), (2) Do NOT include text descriptions (use '1,000' NOT '$1,000 Ded.'), (3) Use '0' for zero deductible (NOT 'No Deductible' or '$0 Ded.'), (4) Use standard number format ('1,000,000') or K/M suffix ('1M', '50K'), (5) Preserve special values exactly ('Standard', 'Inc.', '60 Months'). Format examples: '1M', '1,000', '50K', '0', 'Standard', 'Inc.'. May be null if cannot be extracted from text.",
+              "description": "Formatted coverage amount (string type, e.g., '1M', '1,000', '50K', '0', 'Standard', 'Inc.', may be null). MUST NOT contain $ symbol or text descriptions like 'Ded.'"
             }
           }
         }

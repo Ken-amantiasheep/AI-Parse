@@ -223,7 +223,78 @@ class IntactJSONGenerator:
         requirements = """
 ## ⚠️ CRITICAL FORMAT REQUIREMENTS - MUST FOLLOW EXACTLY ⚠️
 
-### 1. application_info.prev_insurance.end_date Structure (CRITICAL)
+### 1. application_info.address.address Format (CRITICAL)
+
+**❌ WRONG FORMAT**:
+```json
+"address": {
+  "address": "6 BlueberryDr."  // ❌ Missing space, cannot identify street type
+}
+```
+
+**✅ CORRECT FORMAT**:
+```json
+"address": {
+  "address": "6 Blueberry Dr."  // ✅ Has space, can correctly separate street name and type
+}
+```
+
+**Rules**:
+- Street name and street type **MUST be separated by a space** in the address field
+- Examples: "123 Main St", "456 Oak Ave", "789 Park Dr"
+- Do NOT write: "123 MainSt", "456 OakAve" (missing space)
+
+### 2. application_info.province Format (CRITICAL)
+
+**❌ WRONG FORMAT**:
+```json
+"province": "Ontario"  // ❌ Full name
+```
+
+**✅ CORRECT FORMAT**:
+```json
+"province": "ON"  // ✅ Province abbreviation (2 uppercase letters)
+```
+
+**Province Abbreviation Reference**:
+- Ontario → ON
+- British Columbia → BC
+- Alberta → AB
+- Manitoba → MB
+- Saskatchewan → SK
+- Quebec → QC
+- New Brunswick → NB
+- Nova Scotia → NS
+- Prince Edward Island → PE
+- Newfoundland and Labrador → NL
+- Yukon → YT
+- Northwest Territories → NT
+- Nunavut → NU
+
+### 3. application_info.phone.number Format
+
+**✅ RECOMMENDED FORMAT**:
+```json
+"phone": {
+  "type": "Home",
+  "number": "647-781-0777"  // ✅ Recommended: remove parentheses, use hyphens
+}
+```
+
+**OR**:
+```json
+"phone": {
+  "type": "Home",
+  "number": "(647) 781-0777"  // ⚠️ Also acceptable, but removing parentheses is recommended
+}
+```
+
+**Rules**:
+- Recommended format: `###-###-####` (remove parentheses)
+- Also acceptable: `(###) ###-####` (with parentheses)
+- Do NOT use: `### ### ####` (space-separated)
+
+### 4. application_info.prev_insurance.end_date Structure (CRITICAL)
 
 **❌ WRONG FORMAT**:
 ```json
@@ -249,7 +320,7 @@ class IntactJSONGenerator:
 - If date is "03/09/2026" format, split into: month: "03", day: "09", year: "2026"
 - If date doesn't exist, set end_date to null but keep prev_insurance object structure
 
-### 2. coverages_information Structure (CRITICAL)
+### 5. coverages_information Structure (CRITICAL)
 
 **❌ WRONG FORMAT**:
 ```json
@@ -301,7 +372,7 @@ class IntactJSONGenerator:
 - Each coverage class value is an object containing multiple coverage items
 - Each coverage item must have: name (string), deductible (string | null), amount (string), premium (string)
 
-### 3. application_info Field Cleanup
+### 6. application_info Field Cleanup
 
 **❌ WRONG FORMAT**:
 ```json
@@ -326,21 +397,21 @@ class IntactJSONGenerator:
 
 **Rules**: Do NOT have duplicate fields like caa_membership both in membership object and as top-level field.
 
-### 4. effective_date Format
+### 7. effective_date Format
 
 **✅ CORRECT FORMAT**:
 ```json
 "effective_date": "2026-03-09"  // YYYY-MM-DD format string, NOT object
 ```
 
-### 5. claims Array Default Value
+### 8. claims Array Default Value
 
 **✅ CORRECT FORMAT**:
 ```json
 "claims": []  // If no claims, use empty array [], NOT null
 ```
 
-### 6. secondary_dwelling_information Format
+### 9. secondary_dwelling_information Format
 
 **✅ CORRECT FORMAT**:
 ```json
@@ -357,7 +428,7 @@ Or if exists:
 }
 ```
 
-### 7. insured_information.name Format (CRITICAL)
+### 10. insured_information.name Format (CRITICAL)
 
 **❌ WRONG FORMAT**:
 ```json
@@ -414,26 +485,49 @@ or
 ## Validation Checklist
 
 Before outputting JSON, verify:
+
+### Address Format
+- [ ] `application_info.address.address` has space between street name and type
+- [ ] Example: "6 Blueberry Dr." (NOT "6 BlueberryDr.")
+
+### Province Format
+- [ ] `application_info.province` uses 2-letter abbreviation (ON, BC, AB, etc.)
+- [ ] NOT full name (Ontario, British Columbia, etc.)
+
+### Date Format
+- [ ] `insured_information.date_of_birth` is YYYY-MM-DD format
+- [ ] `application_info.effective_date` is YYYY-MM-DD format
+- [ ] `prev_insurance.end_date` is object format `{month, day, year}`
+
+### Phone Format
+- [ ] `application_info.phone.number` recommended format: `###-###-####` (remove parentheses)
+
+### Name Format
+- [ ] `insured_information.name` contains at least two words
+- [ ] Last word (Last Name) has at least 2 characters
+
+### Array Format
+- [ ] `coverages_information` is array `[]`, NOT object `{}`
+- [ ] `claims` uses `[]` instead of `null` if no data
+
+### Other Checks
 - [ ] application_info.prev_insurance.end_date is object {month, day, year} NOT string
-- [ ] coverages_information is array [] NOT object {}
-- [ ] claims uses [] instead of null if no data
 - [ ] application_info has no duplicate fields
-- [ ] effective_date is YYYY-MM-DD format string
 - [ ] secondary_dwelling_information is null if not exists
-- [ ] All date fields use correct formats
-- [ ] insured_information.name contains at least TWO words (separated by spaces)
-- [ ] Last word of insured_information.name (Last Name) has at least 2 characters
 - [ ] coinsured_information.name (if exists) follows same format requirements
 
 ## Common Errors to Avoid
 
-1. ❌ Do NOT set end_date as string "2026-03-09"
-2. ❌ Do NOT set coverages_information as object {}
-3. ❌ Do NOT set claims as null (use [])
-4. ❌ Do NOT have duplicate fields in application_info
-5. ❌ Do NOT set effective_date as object (should be string)
-6. ❌ Do NOT set insured_information.name as single word (must have at least 2 words)
-7. ❌ Do NOT set Last Name with only 1 character (must be at least 2 characters)
+1. ❌ Do NOT set address without space between street name and type (e.g., "BlueberryDr." → should be "Blueberry Dr.")
+2. ❌ Do NOT set province as full name (e.g., "Ontario" → should be "ON")
+3. ❌ Do NOT set end_date as string "2026-03-09" (should be object {month, day, year})
+4. ❌ Do NOT set coverages_information as object {} (should be array [])
+5. ❌ Do NOT set claims as null (use [])
+6. ❌ Do NOT have duplicate fields in application_info
+7. ❌ Do NOT set effective_date as object (should be string)
+8. ❌ Do NOT set insured_information.name as single word (must have at least 2 words)
+9. ❌ Do NOT set Last Name with only 1 character (must be at least 2 characters)
+10. ❌ Do NOT use space-separated phone format (recommended: `###-###-####`)
 
 """
         return requirements
@@ -1466,6 +1560,17 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             for key in ("address", "phone", "caa_membership_number", "lessor"):
                 if key in app_info and app_info[key] is None:
                     app_info[key] = ""
+        
+        # Clean coverage_amount fields in coverages_information (Auto format: object with vehicle keys)
+        coverages_info = data.get("coverages_information")
+        if isinstance(coverages_info, dict):
+            for vehicle_key, vehicle_coverages in coverages_info.items():
+                if isinstance(vehicle_coverages, dict):
+                    for coverage_type, coverage_data in vehicle_coverages.items():
+                        if isinstance(coverage_data, dict):
+                            # Clean coverage_amount field
+                            if "coverage_amount" in coverage_data:
+                                coverage_data["coverage_amount"] = self._clean_coverage_amount(coverage_data["coverage_amount"])
 
         return data
     
@@ -1793,6 +1898,7 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         - Last word (Last Name) has at least 2 characters
         - Multiple spaces normalized to single space
         - Remove special characters and invisible characters
+        - Preserve Unicode characters (including Chinese characters)
         """
         if not isinstance(name, str):
             return name
@@ -1804,9 +1910,20 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             return name
         
         # Remove invisible characters (zero-width spaces, etc.)
-        # Keep only printable characters, spaces, and hyphens
+        # Keep Unicode word characters, spaces, hyphens, and dots
         name = re.sub(r'[\u200B-\u200D\uFEFF]', '', name)  # Remove zero-width characters
-        name = re.sub(r'[^\w\s\-\.]', '', name)  # Keep only word chars, spaces, hyphens, dots
+        
+        # More permissive regex: keep Unicode letters, digits, spaces, hyphens, dots, apostrophes
+        # Use \w which matches Unicode word characters (including Chinese) in Python 3
+        # Remove only clearly problematic characters (control chars, symbols except hyphens/apostrophes)
+        try:
+            # Python 3: \w matches Unicode word characters by default
+            # Remove characters that are NOT: word chars, spaces, hyphens, apostrophes, dots
+            name = re.sub(r'[^\w\s\-\'\.]', '', name, flags=re.UNICODE)
+        except:
+            # Fallback: if Unicode flag fails, use ASCII-safe pattern
+            # But this should rarely happen in Python 3
+            name = re.sub(r'[^\w\s\-\'\.]', '', name)
         
         # Normalize multiple spaces to single space
         name = re.sub(r'\s+', ' ', name)
@@ -1817,31 +1934,37 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         if not name:
             return name
         
-        # Split into words
+        # Split into words (preserve all non-empty words)
         words = [w.strip() for w in name.split() if w.strip()]
         
         if len(words) == 0:
             return name
         
-        # Clean each word: remove non-word characters except hyphens
+        # Clean each word: remove only clearly problematic characters, preserve Unicode
         cleaned_words = []
         for word in words:
-            # Keep word characters and hyphens
-            cleaned_word = re.sub(r'[^\w\-]', '', word)
+            # Remove only non-word, non-hyphen, non-apostrophe characters
+            # Preserve Unicode letters (including Chinese) - \w matches Unicode word chars in Python 3
+            try:
+                cleaned_word = re.sub(r'[^\w\-\']', '', word, flags=re.UNICODE)
+            except:
+                cleaned_word = re.sub(r'[^\w\-\']', '', word)
             if cleaned_word:  # Only add non-empty words
                 cleaned_words.append(cleaned_word)
         
         if len(cleaned_words) == 0:
             return "Unknown Unknown"
         
-        # If only one word after cleaning, duplicate it to create a valid name
-        if len(cleaned_words) == 1:
+        # CRITICAL: Validate that we have at least 2 words before proceeding
+        if len(cleaned_words) < 2:
+            # If only one word, duplicate it to create a valid name
             single_word = cleaned_words[0]
             if len(single_word) >= 2:
                 return f"{single_word} {single_word}"
             else:
                 # If less than 2 characters, pad it
-                return f"{single_word} {single_word.ljust(2, 'X')}"
+                padded = single_word.ljust(2, 'X')
+                return f"{single_word} {padded}"
         
         # Check if last word (Last Name) has at least 2 characters
         last_word = cleaned_words[-1]
@@ -1854,39 +1977,88 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                     # Use second-to-last as last name, combine rest (including the short last word) as first name
                     first_name_parts = cleaned_words[:-2] + [last_word]
                     first_name = ' '.join(first_name_parts) if first_name_parts else second_last
+                    # CRITICAL: Ensure first_name is not empty
+                    if not first_name or not first_name.strip():
+                        first_name = second_last if len(second_last) >= 1 else "Unknown"
                     return f"{first_name} {second_last}"
                 else:
                     # Both are short, combine them as last name
                     combined_last_name = second_last + last_word
                     if len(combined_last_name) >= 2:
                         first_name = ' '.join(cleaned_words[:-2]) if len(cleaned_words) > 2 else "Unknown"
+                        # CRITICAL: Ensure first_name is not empty
+                        if not first_name or not first_name.strip():
+                            first_name = "Unknown"
                         return f"{first_name} {combined_last_name}"
                     else:
                         # Pad the combined name
                         padded_last = combined_last_name.ljust(2, 'X')
                         first_name = ' '.join(cleaned_words[:-2]) if len(cleaned_words) > 2 else "Unknown"
+                        # CRITICAL: Ensure first_name is not empty
+                        if not first_name or not first_name.strip():
+                            first_name = "Unknown"
                         return f"{first_name} {padded_last}"
             else:
                 # Only one word, should not reach here (handled above), but handle it
-                cleaned_words[-1] = last_word.ljust(2, 'X')
+                padded_last = last_word.ljust(2, 'X')
+                return f"{last_word} {padded_last}"
         
-        # Final validation: ensure we have at least 2 words
+        # Final validation: ensure we have at least 2 words and First Name is not empty
         if len(cleaned_words) < 2:
             if len(cleaned_words) == 1:
                 single_word = cleaned_words[0]
                 if len(single_word) >= 2:
                     return f"{single_word} {single_word}"
                 else:
-                    return f"{single_word} {single_word.ljust(2, 'X')}"
+                    padded = single_word.ljust(2, 'X')
+                    return f"{single_word} {padded}"
             else:
                 return "Unknown Unknown"
         
-        return ' '.join(cleaned_words)
+        # CRITICAL: Final check - ensure First Name (all words except last) is not empty
+        first_name_parts = cleaned_words[:-1]
+        first_name = ' '.join(first_name_parts)
+        
+        # If First Name is empty after joining, something went wrong
+        if not first_name or not first_name.strip():
+            # This should not happen, but handle it gracefully
+            if len(cleaned_words) >= 2:
+                # Use first word as First Name
+                first_name = cleaned_words[0]
+            else:
+                first_name = "Unknown"
+        
+        # Ensure Last Name has at least 2 characters
+        last_name = cleaned_words[-1]
+        if len(last_name) < 2:
+            last_name = last_name.ljust(2, 'X')
+        
+        result = f"{first_name} {last_name}"
+        
+        # Final validation: split result and verify
+        result_words = result.split()
+        if len(result_words) < 2:
+            # This should not happen, but handle it
+            if len(result_words) == 1:
+                single = result_words[0]
+                return f"{single} {single}"
+            else:
+                return "Unknown Unknown"
+        
+        # Verify First Name is not empty
+        result_first_name = ' '.join(result_words[:-1])
+        if not result_first_name or not result_first_name.strip():
+            # This is the critical error case - fix it
+            result_first_name = result_words[0] if len(result_words) > 0 else "Unknown"
+            result = f"{result_first_name} {result_words[-1]}"
+        
+        return result
     
     @staticmethod
     def _validate_and_debug_name(name: str, field_name: str):
         """
         Validate name field and print debug information.
+        CRITICAL: This method detects and reports when First Name is empty.
         """
         if not isinstance(name, str):
             print(f"[WARNING] {field_name} is not a string: {type(name)}")
@@ -1894,20 +2066,35 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         
         name = name.strip()
         if not name:
-            print(f"[WARNING] {field_name} is empty")
+            print(f"[ERROR] {field_name} is empty or contains only whitespace")
             return
         
-        # Split into words
-        words = name.split()
+        # Split into words (preserve all words)
+        words = [w.strip() for w in name.split() if w.strip()]
         word_count = len(words)
         
         if word_count < 2:
             print(f"[ERROR] {field_name} has only {word_count} word(s), need at least 2")
+            print(f"  Original name: '{name}'")
+            print(f"  Words: {words}")
             return
         
         # Extract first name and last name
-        first_name = ' '.join(words[:-1])
+        first_name_parts = words[:-1]
+        first_name = ' '.join(first_name_parts)
         last_name = words[-1]
+        
+        # CRITICAL: Check if First Name is empty
+        if not first_name or not first_name.strip():
+            print(f"[ERROR] {field_name} - First Name is EMPTY after parsing!")
+            print(f"  Original name: '{name}'")
+            print(f"  Word count: {word_count}")
+            print(f"  Words: {words}")
+            print(f"  First Name parts: {first_name_parts}")
+            print(f"  First Name (joined): '{first_name}'")
+            print(f"  Last Name: '{last_name}'")
+            print(f"  [CRITICAL] This indicates a parsing error - First Name should not be empty!")
+            return
         
         # Check lengths
         first_name_len = len(first_name)
@@ -1917,32 +2104,109 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         print(f"[DEBUG] {field_name} validation:")
         print(f"  Original name: '{name}'")
         print(f"  Word count: {word_count}")
+        print(f"  Words: {words}")
         print(f"  First Name: '{first_name}' (length: {first_name_len})")
         print(f"  Last Name: '{last_name}' (length: {last_name_len})")
         
         # Validate
         if first_name_len < 1:
             print(f"  [ERROR] First Name is too short (length: {first_name_len}, need >= 1)")
+            print(f"  [CRITICAL] First Name must have at least 1 character!")
         
         if last_name_len < 2:
             print(f"  [ERROR] Last Name is too short (length: {last_name_len}, need >= 2)")
+            print(f"  [CRITICAL] Last Name must have at least 2 characters!")
         
-        # Check for special characters
-        if re.search(r'[^\w\s\-\.]', name):
-            print(f"  [WARNING] Name contains special characters")
+        # Check for special characters (but allow Unicode)
+        try:
+            if re.search(r'[^\w\s\-\'\.]', name, flags=re.UNICODE):
+                print(f"  [WARNING] Name contains special characters (excluding Unicode letters)")
+        except:
+            if re.search(r'[^\w\s\-\'\.]', name):
+                print(f"  [WARNING] Name contains special characters")
         
         # Check for multiple spaces
         if '  ' in name:
             print(f"  [WARNING] Name contains multiple consecutive spaces")
         
+        # Final validation result
         if first_name_len >= 1 and last_name_len >= 2:
-            print(f"  [OK] Name format is valid")
+            print(f"  [OK] Name format is valid: First Name='{first_name}', Last Name='{last_name}'")
+        else:
+            print(f"  [ERROR] Name format is INVALID!")
+            if first_name_len < 1:
+                print(f"    - First Name is empty or too short")
+            if last_name_len < 2:
+                print(f"    - Last Name is too short")
+    
+    @staticmethod
+    def _clean_coverage_amount(value: str) -> str:
+        """
+        清理coverage_amount字段，确保符合格式要求：
+        1. 不包含$符号
+        2. 不包含文字描述（如"Ded."）
+        3. 免赔额为0时使用"0"
+        4. 使用标准数字格式或K/M后缀
+        5. 特殊值精确匹配（"Standard"、"Inc."、"60 Months"等）
+        """
+        if value is None:
+            return value
+        
+        if not isinstance(value, str):
+            value = str(value)
+        
+        original_value = value
+        value = value.strip()
+        
+        # 保留特殊值（不处理）
+        special_values = ["Standard", "Inc.", "Included", "N/A"]
+        # 检查是否包含时间单位（如"60 Months"）
+        if re.search(r'\d+\s*(Months?|Days?|Years?)', value, re.IGNORECASE):
+            return value
+        
+        # 检查是否是特殊值（不区分大小写）
+        if any(value.upper() == sv.upper() for sv in special_values):
+            return value
+        
+        # 处理0值的情况
+        zero_patterns = [
+            r'^no\s+deductible$',
+            r'^\$0\s*ded\.?$',
+            r'^0\s*ded\.?$',
+            r'^\$0$',
+            r'^0$'
+        ]
+        for pattern in zero_patterns:
+            if re.match(pattern, value, re.IGNORECASE):
+                return "0"
+        
+        # 去除$符号
+        value = value.replace('$', '')
+        
+        # 去除常见的文字描述（如"Ded.", "Deductible"等）
+        # 但保留数字部分
+        value = re.sub(r'\s*ded\.?\s*$', '', value, flags=re.IGNORECASE)
+        value = re.sub(r'\s*deductible\s*$', '', value, flags=re.IGNORECASE)
+        
+        # 清理多余的空格
+        value = value.strip()
+        
+        # 如果清理后为空，返回"0"
+        if not value:
+            return "0"
+        
+        # 如果值发生了变化，打印日志
+        if value != original_value:
+            print(f"[INFO] Cleaned coverage_amount: '{original_value}' -> '{value}'")
+        
+        return value
     
     def _normalize_property_structure(self, data: Dict) -> Dict:
         """
         Normalize property JSON structure to ensure:
         - coverages_information is an array [] not an object {}
         - application_info has no duplicate fields (e.g., caa_membership)
+        - coverage_amount fields are cleaned (no $, no text descriptions)
         """
         if not isinstance(data, dict):
             return data
@@ -1970,6 +2234,18 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                 # If it's neither dict nor list, set to empty array
                 print(f"[WARNING] coverages_information is {type(coverages)}, converting to empty array []")
                 data["coverages_information"] = []
+            
+            # Clean coverage_amount fields in coverages_information (Property format: array)
+            if isinstance(data["coverages_information"], list):
+                for coverage_item in data["coverages_information"]:
+                    if isinstance(coverage_item, dict):
+                        for coverage_class, coverages_dict in coverage_item.items():
+                            if isinstance(coverages_dict, dict):
+                                for coverage_name, coverage_data in coverages_dict.items():
+                                    if isinstance(coverage_data, dict):
+                                        # Clean amount field
+                                        if "amount" in coverage_data:
+                                            coverage_data["amount"] = self._clean_coverage_amount(coverage_data["amount"])
         
         # Remove duplicate caa_membership field in application_info
         application_info = data.get("application_info")

@@ -48,7 +48,7 @@
               "Coverage A - Dwelling": {
                 "name": "Coverage A - Dwelling",
                 "deductible": null,
-                "amount": "$728,700",
+                "amount": "728,700",
                 "premium": "$1,956"
               }
             }
@@ -58,7 +58,7 @@
               "Outbuildings": {
                 "name": "Outbuildings",
                 "deductible": null,
-                "amount": "$145,740",
+                "amount": "145,740",
                 "premium": "Inc."
               }
             }
@@ -67,8 +67,8 @@
             "Service Line Coverage": {
               "Service Line": {
                 "name": "Service Line",
-                "deductible": "$1,000",
-                "amount": "$50,000",
+                "deductible": "1,000",
+                "amount": "50,000",
                 "premium": "$150"
               }
             }
@@ -79,7 +79,10 @@
         "coverages_information must be an array []",
         "Each array element is an object containing one coverage class name as key",
         "Each coverage class value is an object containing multiple coverage items",
-        "Each coverage item must have: name (string), deductible (string | null), amount (string), premium (string)"
+        "Each coverage item must have: name (string), deductible (string | null), amount (string), premium (string)",
+        "amount field MUST NOT contain $ symbol or text descriptions (use '500,000' NOT '$500,000' or '$500,000 Ded.')",
+        "amount field for zero deductible MUST be '0' (NOT 'No Deductible' or '$0 Ded.')",
+        "amount field preserves special values exactly ('Standard', 'Inc.', '60 Months')"
       ]
     },
     "application_info_cleanup": {
@@ -592,14 +595,14 @@
       "mode": "free_text",
       "required": true,
       "description": "Extract coverage tables from all pages of the PDF. Look for tables containing keywords: 'Coverage', 'Deductible', 'Amount', 'Premium', 'Annual Premium'. Tables should have 4 columns. Group coverages by class (Contents, Residence, Legal Liability, Extended Coverages, Floaters, etc.). Each coverage class contains multiple coverages with name, deductible, amount, and premium.",
-      "extraction_logic": "CRITICAL: coverages_information MUST be a direct array, NOT nested in a 'coverages' field. Structure: array of objects, where each object is a dictionary with coverage class names as keys and coverage dictionaries as values. Each coverage has: name (string), deductible (string | null), amount (string), premium (string). Example structure: [{'Residence': {'Coverage A - Dwelling': {name: 'Coverage A - Dwelling', deductible: null, amount: '$500,000', premium: '$1,200'}}}, {'Service Line Coverage': {'Service Line': {name: 'Service Line', deductible: '$1,000', amount: '$50,000', premium: '$150'}}}]. Extract ALL coverage rows from ALL pages of the quote PDF. The output JSON should have 'coverages_information' as a direct array, like: {'coverages_information': [{...}, {...}]}",
+      "extraction_logic": "CRITICAL: coverages_information MUST be a direct array, NOT nested in a 'coverages' field. Structure: array of objects, where each object is a dictionary with coverage class names as keys and coverage dictionaries as values. Each coverage has: name (string), deductible (string | null), amount (string), premium (string). CRITICAL FORMAT REQUIREMENTS for amount field: (1) Do NOT include $ symbol (use '500,000' NOT '$500,000'), (2) Do NOT include text descriptions (use '1,000' NOT '$1,000 Ded.'), (3) Use '0' for zero deductible (NOT 'No Deductible' or '$0 Ded.'), (4) Use standard number format ('1,000,000') or K/M suffix ('1M', '50K'), (5) Preserve special values exactly ('Standard', 'Inc.', '60 Months'). Example structure: [{'Residence': {'Coverage A - Dwelling': {name: 'Coverage A - Dwelling', deductible: null, amount: '500,000', premium: '$1,200'}}}, {'Service Line Coverage': {'Service Line': {name: 'Service Line', deductible: '1,000', amount: '50,000', premium: '$150'}}}]. Extract ALL coverage rows from ALL pages of the quote PDF. The output JSON should have 'coverages_information' as a direct array, like: {'coverages_information': [{...}, {...}]}",
       "example": [
         {
           "Residence": {
             "Coverage A - Dwelling": {
               "name": "Coverage A - Dwelling",
               "deductible": null,
-              "amount": "$500,000",
+              "amount": "500,000",
               "premium": "$1,200"
             }
           }
@@ -608,8 +611,8 @@
           "Service Line Coverage": {
             "Service Line": {
               "name": "Service Line",
-              "deductible": "$1,000",
-              "amount": "$50,000",
+              "deductible": "1,000",
+              "amount": "50,000",
               "premium": "$150"
             }
           }
