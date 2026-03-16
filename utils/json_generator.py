@@ -428,7 +428,70 @@ Or if exists:
 }
 ```
 
-### 10. insured_information.name Format (CRITICAL)
+### 10. primary_dwelling_information.dwelling_information.occupied_since Format (CRITICAL)
+
+**❌ WRONG FORMAT**:
+```json
+{
+  "primary_dwelling_information": {
+    "dwelling_information": {
+      // ❌ Missing occupied_since field
+      "year_dwelling_built": "1995"
+    }
+  }
+}
+```
+
+or
+
+```json
+{
+  "primary_dwelling_information": {
+    "dwelling_information": {
+      "occupied_since": "2018-03-15"  // ❌ Wrong format (YYYY-MM-DD)
+    }
+  }
+}
+```
+
+**✅ CORRECT FORMAT**:
+```json
+{
+  "primary_dwelling_information": {
+    "dwelling_information": {
+      "occupied_since": "03/15/2018",  // ✅ MM/DD/YYYY format
+      "year_dwelling_built": "1995",
+      ...
+    }
+  }
+}
+```
+
+**Field Details**:
+- **Field Name**: `occupied_since`
+- **Location**: `primary_dwelling_information.dwelling_information.occupied_since`
+- **Type**: String (date)
+- **Format**: `MM/DD/YYYY` (e.g., "03/15/2018")
+- **Description**: The date when the insured first occupied/started living at the current property address
+- **Required**: Yes (for all dwelling types: Homeowners, Tenants, Condominiums, Rented Dwelling)
+
+**Where to Find This Information**:
+Look for information in the quote or application PDFs such as:
+- "Date moved in"
+- "Occupied since"
+- "Residence date"
+- "Date of occupancy"
+- "When did you move in"
+- "How long have you lived here"
+
+**⚠️ CRITICAL NOTES**:
+1. **Date Format**: Must be `MM/DD/YYYY` format (NOT `YYYY-MM-DD`)
+2. **Required for All Types**: This field is required for all dwelling types (Homeowners, Tenants, Condominiums, Rented Dwelling)
+3. **Premium Calculation**: This field directly affects premium calculation. You MUST extract it accurately from the PDF. Do NOT use default values or guess.
+4. **If Not Found**: If the information is truly not found in the documents, you must clearly indicate this in your output (use null, but document why)
+5. **Secondary Dwelling**: If secondary dwelling exists, also add to `secondary_dwelling_information.dwelling_information.occupied_since`
+
+### 11. insured_information.name Format (CRITICAL)
 
 **❌ WRONG FORMAT**:
 ```json
@@ -498,6 +561,8 @@ Before outputting JSON, verify:
 - [ ] `insured_information.date_of_birth` is YYYY-MM-DD format
 - [ ] `application_info.effective_date` is YYYY-MM-DD format
 - [ ] `prev_insurance.end_date` is object format `{month, day, year}`
+- [ ] `primary_dwelling_information.dwelling_information.occupied_since` is MM/DD/YYYY format (required)
+- [ ] `secondary_dwelling_information.dwelling_information.occupied_since` is MM/DD/YYYY format (if secondary dwelling exists)
 
 ### Phone Format
 - [ ] `application_info.phone.number` recommended format: `###-###-####` (remove parentheses)
@@ -515,6 +580,8 @@ Before outputting JSON, verify:
 - [ ] application_info has no duplicate fields
 - [ ] secondary_dwelling_information is null if not exists
 - [ ] coinsured_information.name (if exists) follows same format requirements
+- [ ] primary_dwelling_information.dwelling_information.occupied_since exists and is MM/DD/YYYY format
+- [ ] secondary_dwelling_information.dwelling_information.occupied_since exists (if secondary dwelling exists) and is MM/DD/YYYY format
 
 ## Common Errors to Avoid
 
@@ -528,6 +595,301 @@ Before outputting JSON, verify:
 8. ❌ Do NOT set insured_information.name as single word (must have at least 2 words)
 9. ❌ Do NOT set Last Name with only 1 character (must be at least 2 characters)
 10. ❌ Do NOT use space-separated phone format (recommended: `###-###-####`)
+11. ❌ Do NOT omit `occupied_since` field in `dwelling_information` (required for all dwelling types)
+12. ❌ Do NOT use YYYY-MM-DD format for `occupied_since` (must be MM/DD/YYYY)
+
+## FULL CAA_property OUTPUT EXAMPLE - FOLLOW THIS STRUCTURE
+
+The overall JSON structure, section names, and nesting MUST follow this example for CAA_property outputs.
+
+```json
+{
+  "address": {
+    "address": "6 Blueberry Dr.",
+    "city": "Scarborough",
+    "province": "ON",
+    "postal_code": "M1S3E9"
+  },
+  "phone": "647-781-0777",
+  "policy_information": {
+    "insured_since": "01/06/2014",
+    "insured_with_brokerage_since": "03/09/2026",
+    "auto_insured_since": null,
+    "auto_current_insurer": "New Business",
+    "property_insured_since": "04/01/2024",
+    "property_current_insurer": "New Business",
+    "multi_line_policy": "Yes",
+    "combined_policy": "Yes",
+    "multi_line_for_all_carriers": "Yes",
+    "first_time_buyer": "No"
+  },
+  "insured_information": {
+    "name": "Zi Qing Lin",
+    "date_of_birth": "06/02/1976",
+    "gender": "Male",
+    "retired": null,
+    "occupation": null,
+    "employer": null,
+    "date_hired": null,
+    "full_time": "No"
+  },
+  "coinsured_information": {
+    "name": "Yanxia Ke",
+    "date_of_birth": "10/10/1980",
+    "gender": "Female"
+  },
+  "primary_dwelling_information": {
+    "dwelling_type": "Homeowners",
+    "location_and_coverage_information": {
+      "location": "6 BLUEBERRY DR, SCARBOROUGH - M1S3E9",
+      "metres_to_hydrant": "Within 150 metres",
+      "kilometres_to_firehall": "Within 5 kilometres",
+      "coverage_type": "All Risk / All Risk",
+      "single_limit": "Yes",
+      "gbrc": "Yes",
+      "dwelling_value": "$728,700",
+      "dwelling_coverage": "$728,700",
+      "outbuildings": "Limit",
+      "contents": "Limit",
+      "deductible": "$2,000",
+      "liability": "$1,000,000",
+      "rcc_included": "Yes",
+      "last_home_evaluation": "02/24/2026",
+      "home_evaluation_tool": "ezITV (iClarify Validated)",
+      "hail_deductible": "Base",
+      "hail_coverage": null,
+      "wind_deductible": "Base",
+      "wind_coverage": null,
+      "water_deductible": "Base"
+    },
+    "dwelling_information": {
+      "owner_occupied": "Yes",
+      "year_dwelling_built": "1972",
+      "occupied_since": "04/01/2024",
+      "number_of_mortgages": "1",
+      "number_of_families": "1",
+      "structure": "Detached",
+      "construction": "Frame (Wood)",
+      "in_law_suite": "No",
+      "basement_apartment": "No",
+      "number_of_units": "1",
+      "exterior_finish": "Brick Veneer",
+      "garage": "Built-in",
+      "number_of_cars": "2",
+      "year_of_roof": "2021",
+      "roof_renovated": "100%",
+      "type_of_roof": "Asphalt Shingles",
+      "slope": "Pitched",
+      "impact_resistance": null,
+      "year_of_plumbing": "2015",
+      "plumbing_renovated": "100%",
+      "type_of_plumbing": "Mixed – Copper/PVC",
+      "year_of_electrical": "2015",
+      "electrical_renovated": "100%",
+      "electrical_service": "100 AMP",
+      "type_of_electrical": "Copper",
+      "electrical_panel": "Breakers",
+      "number_of_storeys": "2",
+      "total_living_area": "1691 sq. ft.",
+      "basement_area": "530 sq. ft.",
+      "finished_basement": "100%",
+      "number_of_full_baths": "1",
+      "number_of_half_baths": "1",
+      "water_heater_year": "2020",
+      "water_main_valve_shutoff": null,
+      "number_of_sensors": null,
+      "septic_system": "No"
+    },
+    "heating_information": {
+      "approved": "Yes",
+      "year": "2020",
+      "renovated": "100%",
+      "type": "Central Furnace - Gas",
+      "chimney_type": null
+    },
+    "security_information": {
+      "burglar_alarm": "None",
+      "fire_alarm": "None",
+      "number_of_smoke_detectors": "3",
+      "number_of_fire_extinguishers": "0",
+      "sprinkler_system": "None",
+      "dead_bolt_locks": "Yes",
+      "block_watch": "No",
+      "walled_community": "No",
+      "bars_on_windows": "No",
+      "dog": "No"
+    },
+    "preventative_measures_information": {
+      "alarmed_sump_pump": "No",
+      "sump_pump_pit": "No",
+      "backup_backflow_valve": null,
+      "type": null,
+      "auxiliary_power": null
+    },
+    "extended_coverages": {
+      "Sewer Backup": {
+        "amount": "Max",
+        "deductible": "$2,000"
+      },
+      "Overland Water": {
+        "amount": "Max",
+        "deductible": "$2,000"
+      }
+    }
+  },
+  "secondary_dwelling_information": null,
+  "coverages_information": [
+    {
+      "Residence": {
+        "name": "Residence",
+        "deductible": "$2,000",
+        "amount": "$728,700",
+        "premium": "$1,956"
+      },
+      "Outbuildings": {
+        "name": "Outbuildings",
+        "deductible": "$2,000",
+        "amount": "$145,740",
+        "premium": "Inc."
+      },
+      "Contents": {
+        "name": "Contents",
+        "deductible": "$2,000",
+        "amount": "$582,960",
+        "premium": "Inc."
+      },
+      "Additional Living Expenses": {
+        "name": "Additional Living Expenses",
+        "deductible": "$2,000",
+        "amount": "$218,610",
+        "premium": "Inc."
+      },
+      "Voluntary Medical": {
+        "name": "Voluntary Medical",
+        "deductible": "$2,000",
+        "amount": "$5,000",
+        "premium": "Inc."
+      },
+      "Voluntary Property": {
+        "name": "Voluntary Property",
+        "deductible": "$2,000",
+        "amount": "$1,000",
+        "premium": "Inc."
+      },
+      "Deductible": {
+        "name": "Deductible",
+        "deductible": "$2,000",
+        "amount": "",
+        "premium": "$-117"
+      },
+      "Replacement Cost Contents": {
+        "name": "Replacement Cost Contents",
+        "deductible": "$2,000",
+        "amount": "",
+        "premium": "Inc."
+      },
+      "Single Limit": {
+        "name": "Single Limit",
+        "deductible": "$2,000",
+        "amount": "$1,676,010",
+        "premium": "Inc."
+      },
+      "Guaranteed Building Replacement Cost": {
+        "name": "Guaranteed Building Replacement Cost",
+        "deductible": "$2,000",
+        "amount": "",
+        "premium": "Inc."
+      },
+      "Legal Liability": {
+        "name": "Legal Liability",
+        "deductible": "$2,000",
+        "amount": "",
+        "premium": ""
+      },
+      "Personal Insurance": {
+        "name": "Personal Insurance",
+        "deductible": "$2,000",
+        "amount": "$1,000,000",
+        "premium": "Inc."
+      },
+      "Discounts - Premiums may have been rounded.": {
+        "name": "Discounts - Premiums may have been rounded.",
+        "deductible": null,
+        "amount": "",
+        "premium": "$-666"
+      },
+      "CAA Member": {
+        "name": "CAA Member",
+        "deductible": null,
+        "amount": "10%",
+        "premium": "$-184"
+      },
+      "Multi-Line": {
+        "name": "Multi-Line",
+        "deductible": null,
+        "amount": "12.5%",
+        "premium": "$-186"
+      },
+      "Claims Free": {
+        "name": "Claims Free",
+        "deductible": null,
+        "amount": "10%",
+        "premium": "$-130"
+      },
+      "Seniors": {
+        "name": "Seniors",
+        "deductible": null,
+        "amount": "10%",
+        "premium": "$-165"
+      },
+      "Extended Coverages": {
+        "name": "Extended Coverages",
+        "deductible": "$2,000",
+        "amount": "",
+        "premium": "$429"
+      },
+      "Sewer Backup": {
+        "name": "Sewer Backup",
+        "deductible": "$2,000",
+        "amount": "$50,000",
+        "premium": "$429"
+      },
+      "Overland Water": {
+        "name": "Overland Water",
+        "deductible": "$2,000",
+        "amount": "",
+        "premium": "Inc."
+      }
+    }
+  ],
+  "application_info": {
+    "address": {
+      "address": "6 Blueberry Dr.",
+      "city": "Scarborough",
+      "province": "ON",
+      "postal_code": "M1S3E9"
+    },
+    "phone": {
+      "type": "Home",
+      "number": "647-290-2372"
+    },
+    "effective_date": "2026-03-09",
+    "membership": {
+      "caa_membership": "Yes",
+      "caa_membership_number": "6202822425653003"
+    },
+    "prev_insurance": {
+      "company": "AVIVA COMPANY OF CANADA",
+      "policy_number": "P97270368HAB",
+      "end_date": {
+        "year": "2026",
+        "month": "03",
+        "day": "09"
+      }
+    }
+  }
+}
+```
 
 """
         return requirements

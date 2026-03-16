@@ -155,14 +155,18 @@
     "application_info has no duplicate fields",
     "effective_date is YYYY-MM-DD format string",
     "secondary_dwelling_information is null if not exists",
-    "All date fields use correct formats"
+    "All date fields use correct formats",
+    "primary_dwelling_information.dwelling_information.occupied_since exists and is MM/DD/YYYY format",
+    "secondary_dwelling_information.dwelling_information.occupied_since exists (if secondary dwelling exists) and is MM/DD/YYYY format"
   ],
   "common_errors_to_avoid": [
     "Do NOT set end_date as string '2026-03-09'",
     "Do NOT set coverages_information as object {}",
     "Do NOT set claims as null (use [])",
     "Do NOT have duplicate fields in application_info",
-    "Do NOT set effective_date as object (should be string)"
+    "Do NOT set effective_date as object (should be string)",
+    "Do NOT omit occupied_since field in dwelling_information (required for all dwelling types)",
+    "Do NOT use YYYY-MM-DD format for occupied_since (must be MM/DD/YYYY)"
   ],
   "fields": {
     "address": {
@@ -401,7 +405,16 @@
           "mode": "free_text",
           "required": true,
           "extraction_logic": "Detailed dwelling information including construction, year built, occupancy, structure details, etc. Fields vary by dwelling type. IMPORTANT: Extract ALL fields listed for the specific dwelling_type. Use regex patterns to find each field label and extract the value that follows it.",
-          "description": "Detailed dwelling information (varies by dwelling type)"
+          "description": "Detailed dwelling information (varies by dwelling type)",
+          "fields": {
+            "occupied_since": {
+              "type": "string",
+              "mode": "date",
+              "required": true,
+              "extraction_logic": "CRITICAL: The date when the insured first occupied/started living at the current property address. Look for information in the quote or application PDFs such as: 'Date moved in', 'Occupied since', 'Residence date', 'Date of occupancy', 'When did you move in', 'How long have you lived here'. This field directly affects premium calculation. You MUST extract it accurately from the PDF. Do NOT use default values or guess. If the information is truly not found in the documents, you must clearly indicate this in your output. Format: MM/DD/YYYY (e.g., '03/15/2018'). Required for all dwelling types: Homeowners, Tenants, Condominiums, Rented Dwelling.",
+              "description": "Date when the insured first occupied/started living at the current property address (MM/DD/YYYY format, required for all dwelling types)"
+            }
+          }
         },
         "heating_information": {
           "type": "object",
@@ -543,7 +556,16 @@
           "mode": "free_text",
           "required": true,
           "extraction_logic": "Detailed dwelling information including construction, year built, occupancy, structure details, etc. Fields vary by dwelling type. IMPORTANT: Extract ALL fields listed for the specific dwelling_type. Use regex patterns to find each field label and extract the value that follows it.",
-          "description": "Detailed dwelling information (varies by dwelling type)"
+          "description": "Detailed dwelling information (varies by dwelling type)",
+          "fields": {
+            "occupied_since": {
+              "type": "string",
+              "mode": "date",
+              "required": true,
+              "extraction_logic": "CRITICAL: The date when the insured first occupied/started living at the current property address. Look for information in the quote or application PDFs such as: 'Date moved in', 'Occupied since', 'Residence date', 'Date of occupancy', 'When did you move in', 'How long have you lived here'. This field directly affects premium calculation. You MUST extract it accurately from the PDF. Do NOT use default values or guess. If the information is truly not found in the documents, you must clearly indicate this in your output. Format: MM/DD/YYYY (e.g., '03/15/2018'). Required for all dwelling types: Homeowners, Tenants, Condominiums, Rented Dwelling.",
+              "description": "Date when the insured first occupied/started living at the current property address (MM/DD/YYYY format, required for all dwelling types)"
+            }
+          }
         },
         "heating_information": {
           "type": "object",
