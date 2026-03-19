@@ -587,6 +587,13 @@
           "extraction_logic": "Extract THIS specific driver's brokerage insured date. Format: MM/DD/YYYY.",
           "description": "Brokerage insured date in MM/DD/YYYY format"
         },
+        "current_Policy #": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract THIS specific driver's current policy number from Autoplus. In Autoplus, go to the 'Policies' section and find the column labeled 'Policy #' (or the 'policy' column). Take the FIRST insurance entry's Policy # (the topmost non-empty Policy # value in that column). Return the policy number as a string only (remove surrounding whitespace; remove spaces inside the number if present, but keep letters/digits/hyphens).",
+          "description": "Current policy number (from Autoplus first policy entry)"
+        },
         "date_owner_principal": {
           "type": "string",
           "mode": "date",
