@@ -91,7 +91,7 @@
           "type": "string",
           "mode": "date",
           "required": true,
-          "description": "Policy effective date in DD-MM-YYYY format"
+          "description": "Policy effective date in YYYY-MM-DD format"
         }
       }
     },
@@ -247,27 +247,27 @@
           "mode": "date",
           "required": true,
           "extraction_logic": "Extract the G Class date licensed for THIS specific driver. ONLY include this field if licence_class is 'G'. Do NOT include if licence_class is 'G1' or 'G2'.",
-          "description": "G Class - Date Licensed in DD-MM-YYYY format"
+          "description": "G Class - Date Licensed in YYYY-MM-DD format"
         },
         "g2_class_date_licensed": {
           "type": "string",
           "mode": "date",
           "required": true,
           "extraction_logic": "Extract the G2 Class date licensed for THIS specific driver. Include this field if licence_class is 'G2' or 'G'. Do NOT include if licence_class is 'G1'.",
-          "description": "G2 Class - Date Licensed in DD-MM-YYYY format"
+          "description": "G2 Class - Date Licensed in YYYY-MM-DD format"
         },
         "g1_class_date_licensed": {
           "type": "string",
           "mode": "date",
           "required": true,
           "extraction_logic": "Extract the G1 Class date licensed for THIS specific driver. Include this field if licence_class is 'G1', 'G2', or 'G'.",
-          "description": "G1 Class - Date Licensed in DD-MM-YYYY format"
+          "description": "G1 Class - Date Licensed in YYYY-MM-DD format"
         },
         "request_date_time": {
           "type": "string",
           "mode": "date",
           "required": true,
-          "description": "MVR's Request Date/Time in DD-MM-YYYY format for THIS specific driver"
+          "description": "MVR's Request Date/Time in YYYY-MM-DD format for THIS specific driver"
         },
         "insurance_history_report_status": {
           "type": "string",
@@ -282,7 +282,7 @@
           "mode": "date",
           "required": true,
           "extraction_logic": "Extract the insurance history report request date for THIS specific driver. If not found in documents, use the same value as 'request_date_time' (MVR's Request Date/Time).",
-          "description": "Insurance History Report Request Date in DD-MM-YYYY format for THIS specific driver"
+          "description": "Insurance History Report Request Date in YYYY-MM-DD format for THIS specific driver"
         },
         "convictions": {
           "type": "string",
@@ -342,8 +342,8 @@
           "type": "string",
           "mode": "date",
           "required": true,
-          "extraction_logic": "Extract the expiry date from the previous insurance information in documents for THIS specific driver. This is the end date of the previous insurance policy in DD-MM-YYYY format.",
-          "description": "Expiry date in DD-MM-YYYY format (from previous insurance) for THIS specific driver"
+          "extraction_logic": "Extract the expiry date from the previous insurance information in documents for THIS specific driver. This is the end date of the previous insurance policy in YYYY-MM-DD format.",
+          "description": "Expiry date in YYYY-MM-DD format (from previous insurance) for THIS specific driver"
         },
         "previous_insurer_policy_number": {
           "type": "string",
@@ -436,8 +436,8 @@
           "type": "array",
           "mode": "date",
           "required": true,
-          "extraction_logic": "Only extract if has_claim is 'Yes'. Extract ALL dates of loss for ALL claims found in the documents. Each date should be in DD-MM-YYYY format. Output as an array, where each element corresponds to one claim. If there are multiple claims, this array should have multiple elements.",
-          "description": "Date of loss in DD-MM-YYYY format (array - one element per claim)"
+          "extraction_logic": "Only extract if has_claim is 'Yes'. Extract ALL dates of loss for ALL claims found in the documents. Each date should be in YYYY-MM-DD format. Output as an array, where each element corresponds to one claim. If there are multiple claims, this array should have multiple elements.",
+          "description": "Date of loss in YYYY-MM-DD format (array - one element per claim)"
         },
         "at_fault": {
           "type": "array",

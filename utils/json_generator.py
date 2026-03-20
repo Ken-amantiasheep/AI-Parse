@@ -121,6 +121,11 @@ class IntactJSONGenerator:
         """Check if company is CAA-related (CAA, CAA_Auto, CAA_property, etc.)"""
         company_upper = self.company.upper()
         return company_upper == "CAA" or company_upper.startswith("CAA_")
+
+    def _is_intact_company(self) -> bool:
+        """Check if company is Intact-related (Intact, Intact_Auto, etc.)"""
+        company_upper = self.company.upper()
+        return company_upper == "INTACT" or company_upper.startswith("INTACT_")
     
     def _build_fields_prompt_section(self, fields_config: Dict) -> str:
         """Build prompt section from fields configuration"""
@@ -1538,6 +1543,13 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                 print(f"[INFO] Fixed {misalignment_fixes} vehicle information table column misalignment issue(s)")
             # 4) Enforce CAA Auto Submission JSON structure/rules
             data = self._apply_caa_output_normalization(data, documents)
+
+        # Intact-specific post-processing
+        if self._is_intact_company():
+            data, intact_date_fixes = self._normalize_intact_dates(data)
+            if intact_date_fixes > 0:
+                print(f"[INFO] Normalized {intact_date_fixes} Intact date field(s) to YYYY-MM-DD")
+            data = self._remove_non_intact_membership_fields(data)
         
         # Property-specific post-processing
         if self.company.endswith("_property"):
@@ -1578,24 +1590,124 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         return date_value
 
     def _should_apply_caa_dob_normalization(self, data: Dict) -> bool:
-        """Apply CAA DOB normalization for explicit CAA mode or CAA-like output."""
-        if self._is_caa_company():
-            return True
+        """Apply CAA DOB normalization only for explicit CAA mode."""
+        return self._is_caa_company()
 
+    @staticmethod
+    def _format_to_yyyymmdd(date_value):
+        """Convert common date formats to YYYY-MM-DD; return original if conversion fails."""
+        if date_value is None or not isinstance(date_value, str):
+            return date_value
+
+        value = date_value.strip()
+        if not value:
+            return date_value
+
+        # Already in target format
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
+            return value
+
+        # Allow datetime strings by trimming time part
+        if " " in value and re.match(r"^\d{4}-\d{2}-\d{2}\s", value):
+            return value.split(" ", 1)[0]
+        if "T" in value and re.match(r"^\d{4}-\d{2}-\d{2}T", value):
+            return value.split("T", 1)[0]
+
+        # Keep YYYY-MM as-is for month-only fields
+        ym_match = re.match(r"^(\d{4})[-/](\d{1,2})$", value)
+        if ym_match:
+            year, month = ym_match.groups()
+            month_num = int(month)
+            if 1 <= month_num <= 12:
+                return f"{year}-{month_num:02d}"
+            return date_value
+
+        # Handle generic d/m/y or d-m-y with basic disambiguation
+        dmy_match = re.match(r"^(\d{1,2})([-/])(\d{1,2})\2(\d{4})$", value)
+        if dmy_match:
+            first, sep, second, year = dmy_match.groups()
+            first_num = int(first)
+            second_num = int(second)
+            if sep == "/":
+                # Slash values in source docs are usually MM/DD/YYYY
+                month, day = first_num, second_num
+                if first_num > 12 and second_num <= 12:
+                    day, month = first_num, second_num
+            else:
+                # Dash values in Intact outputs were frequently DD-MM-YYYY
+                day, month = first_num, second_num
+                if second_num > 12 and first_num <= 12:
+                    month, day = first_num, second_num
+            if 1 <= month <= 12 and 1 <= day <= 31:
+                return f"{year}-{month:02d}-{day:02d}"
+
+        for fmt in ("%Y/%m/%d", "%d-%m-%Y", "%m-%d-%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y.%m.%d"):
+            try:
+                dt = datetime.strptime(value, fmt)
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+
+        return date_value
+
+    def _collect_date_field_names(self) -> set:
+        """Collect all field names configured as mode=date for current company."""
+        names = set()
+
+        def walk(node):
+            if not isinstance(node, dict):
+                return
+            fields = node.get("fields")
+            if isinstance(fields, dict):
+                for field_name, field_info in fields.items():
+                    if isinstance(field_info, dict):
+                        if field_info.get("mode") == "date":
+                            names.add(field_name)
+                        walk(field_info)
+
+        walk(self.fields_config)
+        return names
+
+    def _normalize_intact_dates(self, data: Dict):
+        """Normalize Intact date fields to YYYY-MM-DD based on config date fields."""
         if not isinstance(data, dict):
-            return False
+            return data, 0
 
-        application_info = data.get("application_info")
-        if isinstance(application_info, dict) and "caa_membership" in application_info:
-            return True
+        date_fields = self._collect_date_field_names()
+        if not date_fields:
+            return data, 0
 
-        carrier_info = data.get("carrier_information")
-        if isinstance(carrier_info, dict):
-            carrier_name = carrier_info.get("carrier_name")
-            if isinstance(carrier_name, str) and "CAA" in carrier_name.upper():
-                return True
+        changed_count = 0
 
-        return False
+        def walk(node):
+            nonlocal changed_count
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key in date_fields and isinstance(value, str):
+                        normalized = self._format_to_yyyymmdd(value)
+                        if normalized != value:
+                            node[key] = normalized
+                            changed_count += 1
+                    walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(data)
+        return data, changed_count
+
+    @staticmethod
+    def _remove_non_intact_membership_fields(data: Dict) -> Dict:
+        """Remove CAA membership fields accidentally generated for Intact."""
+        if not isinstance(data, dict):
+            return data
+        app_info = data.get("application_info")
+        if isinstance(app_info, dict):
+            app_info.pop("caa_membership", None)
+            app_info.pop("caa_membership_number", None)
+            if len(app_info) == 0:
+                data.pop("application_info", None)
+        return data
 
     def _normalize_caa_birth_dates(self, data: Dict):
         """Normalize CAA birth date fields to MM/DD/YYYY."""
