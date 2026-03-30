@@ -93,7 +93,8 @@ def test_validate_and_clean_json_for_intact_dates_and_membership_cleanup():
     assert cleaned["applicant_information"]["date_of_birth"] == "1970-12-05"
     assert cleaned["term"]["policy_effective_date"] == "2026-03-19"
     assert cleaned["driver"][0]["g_class_date_licensed"] == "10-12-2016"
-    assert cleaned["driver"][0]["request_date_time"] == "14-03-2026"
+    assert cleaned["driver"][0]["MVR_request_date_time"] == "14-03-2026"
+    assert "request_date_time" not in cleaned["driver"][0]
     assert cleaned["driver"][0]["insurance_history_report_request_date"] == "14-03-2026"
     assert cleaned["driver"][0]["insured_without_interruption_since"] == "2017-06"
     assert cleaned["driver"][0]["expiry_date"] == "24-06-2026"
@@ -324,53 +325,8 @@ def test_get_required_top_level_fields_from_config():
     fallback = ["applicant_information", "drivers_information"]
     fields_config = {"fields": {"a": {}, "b": {}}}
     assert get_required_top_level_fields("Intact_Auto", fields_config, fallback) == ["a", "b"]
-ned
-    assert "drivers_information" not in cleaned
 
 
-def test_get_required_top_level_fields_from_config():
+def test_get_required_top_level_fields_fallback_when_missing_fields():
     fallback = ["applicant_information", "drivers_information"]
-    fields_config = {"fields": {"a": {}, "b": {}}}
-    assert get_required_top_level_fields("Intact_Auto", fields_config, fallback) == ["a", "b"]
-, "b"]
-ned
-    assert "drivers_information" not in cleaned
-
-
-def test_get_required_top_level_fields_from_config():
-    fallback = ["applicant_information", "drivers_information"]
-    fields_config = {"fields": {"a": {}, "b": {}}}
-    assert get_required_top_level_fields("Intact_Auto", fields_config, fallback) == ["a", "b"]
-", "b"]
-, "b"]
-ned
-    assert "drivers_information" not in cleaned
-
-
-def test_get_required_top_level_fields_from_config():
-    fallback = ["applicant_information", "drivers_information"]
-    fields_config = {"fields": {"a": {}, "b": {}}}
-    assert get_required_top_level_fields("Intact_Auto", fields_config, fallback) == ["a", "b"]
-a", "b"]
-", "b"]
-, "b"]
-ned
-    assert "drivers_information" not in cleaned
-
-
-def test_get_required_top_level_fields_from_config():
-    fallback = ["applicant_information", "drivers_information"]
-    fields_config = {"fields": {"a": {}, "b": {}}}
-    assert get_required_top_level_fields("Intact_Auto", fields_config, fallback) == ["a", "b"]
-"a", "b"]
-a", "b"]
-", "b"]
-, "b"]
-ned
-    assert "drivers_information" not in cleaned
-
-
-def test_get_required_top_level_fields_from_config():
-    fallback = ["applicant_information", "drivers_information"]
-    fields_config = {"fields": {"a": {}, "b": {}}}
-    assert get_required_top_level_fields("Intact_Auto", fields_config, fallback) == ["a", "b"]
+    assert get_required_top_level_fields("Intact_Auto", {}, fallback) == fallback
