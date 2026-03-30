@@ -116,6 +116,13 @@
           "extraction_logic": "Extract the vehicle VIN (Vehicle Identification Number) for THIS specific vehicle from the quote document. VIN is typically 17 characters long.",
           "description": "17-character serial number (Vehicle VIN)"
         },
+        "model": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the full vehicle model descriptor for THIS specific vehicle. Include as much detail as available, ideally in a format like '2022 Toyota Corolla SE Hatchback 5dr FWD 2.0L I4'. If year/make/model/trim/body/drivetrain are available, combine them into one concise string.",
+          "description": "Detailed vehicle model descriptor (year + make + model + trim/body/drivetrain when available)"
+        },
         "condition_when_purchased_or_leased": {
           "type": "string",
           "mode": "dropdown",
@@ -263,7 +270,15 @@
           "extraction_logic": "Extract the G1 Class date licensed for THIS specific driver. Include this field if licence_class is 'G1', 'G2', or 'G'.",
           "description": "G1 Class - Date Licensed in YYYY-MM-DD format"
         },
-        "request_date_time": {
+        "MVR_report_status": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Set MVR report status for THIS specific driver based on conviction result. If this driver has no conviction, select 'received-clean'. If this driver has any conviction detail/code (not 'No'), select 'received-with detail'.",
+          "description": "MVR report status for THIS specific driver",
+          "options": ["received-clean", "received-with detail"]
+        },
+        "MVR_request_date_time": {
           "type": "string",
           "mode": "date",
           "required": true,
@@ -273,7 +288,7 @@
           "type": "string",
           "mode": "dropdown",
           "required": true,
-          "extraction_logic": "Extract from dash/autoplus documents for THIS specific driver. Check if the insurance history report is detected or has specific content. Select 'Not Found' if not detected in dash/autoplus, 'Not Ordered' if not ordered, 'Received' if received, or 'Ordered - Pending' if ordered but pending.",
+          "extraction_logic": "Extract from dash/autoplus documents for THIS specific driver. Check if the insurance history report is detected or has specific content. If dash/autoplus documents are missing (not provided) for this driver, treat it as no insurance history record and select 'Not Found'. Select 'Not Found' if not detected in dash/autoplus, 'Not Ordered' if not ordered, 'Received' if received, or 'Ordered - Pending' if ordered but pending.",
           "description": "Insurance history report status for THIS specific driver",
           "options": ["Not Found", "Not Ordered", "Received", "Ordered - Pending"]
         },
@@ -281,7 +296,7 @@
           "type": "string",
           "mode": "date",
           "required": true,
-          "extraction_logic": "Extract the insurance history report request date for THIS specific driver. If not found in documents, use the same value as 'request_date_time' (MVR's Request Date/Time).",
+          "extraction_logic": "Extract the insurance history report request date for THIS specific driver. If not found in documents, use the same value as 'MVR_request_date_time' (MVR's Request Date/Time).",
           "description": "Insurance History Report Request Date in YYYY-MM-DD format for THIS specific driver"
         },
         "convictions": {

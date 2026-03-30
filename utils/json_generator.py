@@ -14,6 +14,12 @@ import requests
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.document_reader import extract_text_from_documents
+from utils import json_generator_pure
+from utils import company_config
+from utils.company_postprocess import pipeline as company_postprocess_pipeline
+from utils.company_validators import get_required_top_level_fields
+from utils.prompt_parts import common as prompt_common
+from utils.prompt_parts import caa_memo as prompt_caa_memo
 
 class IntactJSONGenerator:
     """Generate JSON required for Intact upload from documents"""
@@ -52,6 +58,7 @@ class IntactJSONGenerator:
         self.timeout_sec = int(timeout_sec or self.config.get("timeout_sec", 180))
         self.gateway_url = gateway_url or self.config.get("gateway_url", "http://127.0.0.1:8080")
         self.gateway_token = gateway_token or self.config.get("gateway_token", "")
+        self.use_company_schema_validation = bool(self.config.get("use_company_schema_validation", False))
         self.company = company
 
         if self.mode == "gateway":
@@ -71,27 +78,9 @@ class IntactJSONGenerator:
             "config"
         )
         
-        # Map company names to config file names
-        # Support both old names (CAA, Intact) and new names (CAA_Auto, Intact_Auto, CAA_property)
         company_lower = company.lower()
-        
-        # Try new naming convention first (e.g., caa_auto_fields_config.json, intact_auto_fields_config.json)
-        # or property variants (e.g., caa_property_fields_config.json)
-        if company_lower.endswith("_auto"):
-            # CAA_Auto -> caa_auto_fields_config.json
-            config_name = f"{company_lower}_fields_config.json"
-        elif company_lower.endswith("_property"):
-            # CAA_property -> caa_property_fields_config.json
-            config_name = f"{company_lower}_fields_config.json"
-        else:
-            # For backward compatibility: CAA -> caa_auto_fields_config.json, Intact -> intact_auto_fields_config.json
-            if company_lower == "caa":
-                config_name = "caa_auto_fields_config.json"
-            elif company_lower == "intact":
-                config_name = "intact_auto_fields_config.json"
-            else:
-                # Other companies: use original naming
-                config_name = f"{company_lower}_fields_config.json"
+        routing = company_config.load_company_routing(config_dir)
+        config_name = company_config.resolve_fields_config_name(company, routing)
         
         fields_config_path = os.path.join(config_dir, config_name)
 
@@ -969,25 +958,7 @@ The overall JSON structure, section names, and nesting MUST follow this example 
     
     def _build_prompt(self, documents: Dict[str, str]) -> str:
         """Build detailed prompt"""
-        prompt = f"""You are a professional insurance data extraction expert. Your task is to extract information from the provided documents and generate JSON data that meets the requirements for uploading to the {self.company} insurance system.
-
-## ⚠️ IMMEDIATE ACTION REQUIRED - READ THIS FIRST ⚠️
-
-Before reading the documents below, you MUST know this:
-
-**FOR CAA INSURANCE APPLICATIONS:**
-- There is a section called "CSIO APPLICATION FOR AUTOMOBILE INSURANCE - OAF1 - MEMO TEXT DETAILS" 
-- This section appears at the END of Application PDF documents
-- In this section, look for a line that says: "Group discount apply: yes - CAA | Member #: [NUMBER]"
-- If you find this line, you MUST:
-  1. Set `caa_membership` to "Yes"
-  2. Extract the number after "| Member #:" as `caa_membership_number`
-  3. Remove all spaces from the membership number
-
-**DO NOT SKIP THIS CHECK!** This information is critical and often appears in the last pages/sections of the Application PDF.
-
-## Input Documents:
-"""
+        prompt = prompt_common.build_prompt_intro(self.company)
         # Add document content (limit length to avoid too many tokens)
         for doc_name, content in documents.items():
             # For CAA, prioritize showing the end of Application PDF where MEMO TEXT DETAILS usually appears
@@ -1023,349 +994,12 @@ Before reading the documents below, you MUST know this:
         fields_section = self._build_fields_prompt_section(self.fields_config)
         prompt += fields_section
         
-        if self._is_caa_company():
-            date_rule = "- For CAA, only date_of_birth fields must be MM/DD/YYYY. Do not force-convert other date fields."
-        else:
-            date_rule = "- All dates must be in YYYY-MM-DD format"
-
-        if self._is_caa_company():
-            caa_claim_policy_rule = """- For CAA claims, each claims item must include non-empty policy (Claim# / Policy#).
-- Claim policy must be extracted from Autoplus claims section (the claim block that contains Loss Date / Company / Source / Policy).
-- For every individual claim item, copy the Policy value from the same claim block into claim.policy (or claim_number if only Claim# is present).
-- Do NOT leave claim.policy empty when Policy/Claim number exists in Autoplus text.
-- If Policy is not printed in that claim block, try Claim# in the same block; if both are missing, then fallback to a global policy number."""
-            caa_membership_rule = """- ⚠️ CRITICAL: CAA Membership Extraction Rule ⚠️
-- THIS IS ONE OF THE MOST IMPORTANT FIELDS - DO NOT SKIP THIS CHECK!
-- SEARCH FOR THIS EXACT PATTERN: "Group discount apply: yes - CAA" - if you find this pattern ANYWHERE in the Application PDF or Quote PDF, you MUST set caa_membership to "Yes".
-- This pattern often appears in sections like "MEMO TEXT DETAILS", "CSIO APPLICATION FOR AUTOMOBILE INSURANCE - OAF1 - MEMO TEXT DETAILS", or similar memo/remarks/details sections.
-- The pattern may appear as: "Group discount apply: yes - CAA" or "Group discount apply: yes - CAA | Member #: [NUMBER]"
-- EXAMPLE: If you see "Group discount apply: yes - CAA | Member #: 620 2822 4256 53003", then:
-  * caa_membership MUST be "Yes" (NOT "No", NOT null)
-  * caa_membership_number MUST be extracted as "6202822425653003" (remove all spaces)
-- When caa_membership is "Yes", caa_membership_number CANNOT be null or empty - the number is ALWAYS on the SAME LINE as "Group discount apply: yes - CAA" after the "| Member #:" separator.
-- Search in both Application PDF and Quote PDF thoroughly, especially in memo/remarks/details sections. Use Ctrl+F or search function if needed.
-- The membership number format is typically digits with optional spaces (e.g., "620 2822 4256 53003" or "6202822425653003").
-- If you find "Group discount apply: yes - CAA" but the membership number seems missing, look more carefully on the same line - it's ALWAYS right there after "| Member #:" on the same line.
-- COMMON MISTAKE: Setting caa_membership to "No" when the pattern exists - DO NOT DO THIS! Always search first before setting to "No"."""
-        else:
-            caa_claim_policy_rule = ""
-            caa_membership_rule = ""
-
-        prompt += f"""
-
-## ⚠️ CRITICAL EXTRACTION CHECKLIST - READ THIS FIRST ⚠️
-
-Before extracting any fields, you MUST perform these checks:
-
-0. **COVERAGES EXTRACTION CHECK (MANDATORY - DO THIS FOR EVERY VEHICLE)**:
-   
-   **When extracting `coverages_information`, you MUST extract ALL rows from coverage/premium tables:**
-   
-   **Standard Coverages (always extract these):**
-   - Bodily Injury
-   - Property Damage
-   - Direct Compensation
-   - Accident Benefits
-   - All Perils
-   - Uninsured Automobile
-   
-   **OPCF Options (extract ALL you find, including but not limited to):**
-   - #5 Rent or Lease
-   - #20 Loss of Use
-   - #27 Liab to Unowned Veh.
-   - #43a Limited Waiver
-   - #44 Family Protection
-   - Any other options starting with #
-   
-   **Protection Options (extract ALL you find, including but not limited to):**
-   - Minor Conviction Protection
-   - Forgive & Forget
-   - Any other protection types in the table
-   
-   **CRITICAL RULE:**
-   - Look at EVERY row in coverage/premium tables in the Quote PDF
-   - Extract EVERY coverage and protection option you see
-   - Do NOT skip any rows - if it's in the table, it MUST be in your output
-   - Each option should have: principal, totals, and/or coverage_amount fields
-
-1. **CAA MEMBERSHIP CHECK (MANDATORY FIRST STEP - DO THIS BEFORE ANYTHING ELSE)**:
-   
-   **STEP 1: Search for the pattern**
-   - Use Ctrl+F or search function to find: "Group discount apply: yes - CAA"
-   - ⚠️ CRITICAL: Search in ALL documents, including:
-     * Application PDF (especially the LATER/END sections - this info often appears near the end of the document)
-     * Quote PDF (the pattern may ONLY appear in Quote PDF, not in Application PDF)
-     * ALL other provided documents
-   - ⚠️ IMPORTANT: Do NOT skip the later pages/sections of documents - this information is often found:
-     * Near the END of Application PDF documents
-     * In the middle or end sections of Quote PDF documents
-     * In sections that come AFTER the main form fields
-   - ⚠️ SPECIFIC LOCATION TO CHECK (THIS IS WHERE IT ALMOST ALWAYS APPEARS):
-     * Look for section header: "CSIO APPLICATION FOR AUTOMOBILE INSURANCE - OAF1 - MEMO TEXT DETAILS"
-     * This section appears at the END of Application PDF documents (after page 4 or 5, near the very end)
-     * In this section, you will see multiple lines of text like:
-       ```
-       Combined Policy / Multi-line discount: yes - Cross Ref: BINDER58154
-       Group discount apply: yes - CAA | Member #: 620 2822 4256 53003
-       Number of Telematics: 0
-       ```
-     * Search for the EXACT line: "Group discount apply: yes - CAA | Member #: [NUMBER]"
-     * The pattern is ALWAYS on a single line in this MEMO TEXT DETAILS section
-     * The membership number (e.g., "620 2822 4256 53003") is RIGHT THERE on the same line after "| Member #:"
-     * ⚠️ DO NOT MISS THIS! It's literally right there in the text!
-   - This pattern appears frequently in sections like:
-     * "MEMO TEXT DETAILS" (often near the end of Application PDF)
-     * "CSIO APPLICATION FOR AUTOMOBILE INSURANCE - OAF1 - MEMO TEXT DETAILS" (THIS IS THE MOST COMMON LOCATION!)
-     * Similar memo/remarks/details sections (typically in later pages)
-   
-   **STEP 2: If pattern is found**
-   - You MUST set `caa_membership` to "Yes" (NOT "No", NOT null)
-   - You MUST extract the membership number from the SAME LINE
-   - The pattern looks like: "Group discount apply: yes - CAA | Member #: 620 2822 4256 53003"
-   - ⚠️ CRITICAL: The membership number is ALWAYS on the SAME LINE, right after "| Member #:"
-   - Extract everything after "| Member #:" as the membership number (including spaces, you'll remove them later)
-   - Remove all spaces from the membership number before outputting
-   - Example extraction:
-     * Input line: "Group discount apply: yes - CAA | Member #: 620 2822 4256 53003"
-     * Extract: "620 2822 4256 53003"
-     * Remove spaces: "6202822425653003"
-     * Output: `caa_membership`: "Yes", `caa_membership_number`: "6202822425653003"
-   - ⚠️ REMEMBER: If you see "Group discount apply: yes - CAA" anywhere, the membership number MUST be on that same line!
-   
-   **STEP 3: If pattern is NOT found**
-   - Only after thoroughly searching ALL documents and confirming the pattern is absent
-   - Then set `caa_membership` to "No"
-   
-   **COMMON MISTAKES TO AVOID:**
-   - ❌ Setting `caa_membership` to "No" without searching ALL documents thoroughly
-   - ❌ Only searching the beginning of documents - the pattern is often in LATER sections
-   - ❌ Only searching Application PDF - the pattern may ONLY be in Quote PDF
-   - ❌ Missing the pattern because it's in a memo/details section near the end
-   - ❌ Setting to "Yes" but not extracting the membership number
-   - ❌ Extracting membership number with spaces (should remove spaces)
-   
-   **VERIFICATION & SELF-CHECK (CRITICAL - DO THIS BEFORE OUTPUTTING JSON):**
-   - Before finalizing your JSON, perform this self-check:
-     1. Did I search for "Group discount apply: yes - CAA" in ALL documents (including later sections)?
-     2. What did I set for `caa_membership`?
-     3. What did I set for `caa_membership_number`?
-   
-   - ⚠️ CRITICAL VALIDATION RULE ⚠️:
-     * If `caa_membership` is "Yes" BUT `caa_membership_number` is null, empty string, or missing:
-       → THIS IS INVALID! You MUST re-search the documents for the membership number
-       → The membership number MUST exist if membership is "Yes"
-       → Go back and search more carefully, especially in:
-         - Later sections of Application PDF
-         - All sections of Quote PDF
-         - Look for the pattern: "Group discount apply: yes - CAA | Member #: [NUMBER]"
-       → Extract the number from the SAME LINE as the pattern
-       → Only output JSON when `caa_membership_number` has a valid value (not empty)
-   
-   - If `caa_membership` is "Yes" → `caa_membership_number` MUST have a value (cannot be null or empty)
-   - If `caa_membership` is "No" → `caa_membership_number` can be null or empty
-   
-   - Final check before output: If caa_membership="Yes" and caa_membership_number is empty/null, STOP and re-search!
-
-## Important Rules:
-{date_rule}
-{caa_claim_policy_rule}
-{caa_membership_rule}
-- Use null (NOT empty string, NOT other values) for missing or blank information
-- Driver and vehicle keys must use numeric suffixes (driver_1, vehicle_1, etc.)
-- Extract convictions from MVR documents with date and description
-- If a conviction is for speeding, include the km/h field
-- Province codes must be standard Canadian abbreviations (ON, BC, AB, QC, etc.)
-
-## CRITICAL: Table Reading Method
-For ALL table-based fields, you MUST:
-1. FIRST identify the COLUMN HEADERS in the table
-2. THEN match each field to its corresponding column by HEADER NAME (not position)
-3. Extract ONLY the value directly under that header's column
-4. If a cell is blank, return null - DO NOT take values from adjacent columns
-
-This is especially important for the purchase information table - see detailed instructions below.
-
-## ⚠️ CRITICAL: Purchase Table Column Alignment - ABSOLUTE REQUIREMENT ⚠️
-
-**STOP AND READ THIS CAREFULLY BEFORE EXTRACTING PURCHASE FIELDS!**
-
-The purchase information is in a TABLE. Each column has a HEADER LABEL. You MUST match fields to columns by HEADER NAME, NOT by reading left-to-right!
-
-**VISUAL REPRESENTATION OF THE TABLE STRUCTURE:**
-
-```
-Column 1: [Purchase Condition]  →  purchase_condition
-Column 2: [Purchase Date]        →  purchase_date
-Column 3: [km at Purchase]       →  km_at_purchase
-Column 4: [List Price New]       →  list_price_new
-Column 5: [Purchase Price]       →  purchase_price
-Column 6: [Winter Tires]         →  winter_tires
-Column 7: [Parking at Night]      →  parking_at_night
-```
-
-**THE EXACT PROCESS YOU MUST FOLLOW:**
-
-For EACH field (km_at_purchase, list_price_new, purchase_price, etc.):
-
-1. **FIND THE COLUMN HEADER**: Search for the exact header text (e.g., "km at Purchase", "List Price New")
-2. **LOOK DIRECTLY BELOW THAT HEADER**: Read ONLY the cell that is directly under that specific header
-3. **CHECK IF CELL IS BLANK**: 
-   - If the cell directly under the header is EMPTY/BLANK → return null
-   - If the cell directly under the header has a value → use that value
-4. **DO NOT LOOK AT OTHER COLUMNS**: Even if you see a value nearby, if it's not directly under the correct header, ignore it!
-
-**THE MOST COMMON MISTAKE TO AVOID:**
-
-❌ **WRONG**: Reading left-to-right: "I see Used, then 03/05/2013, then 29705, so km_at_purchase = 29705"
-✅ **CORRECT**: Finding header "km at Purchase", looking directly below it, seeing it's blank, so km_at_purchase = null
-
-**CONCRETE EXAMPLE - THIS IS WHAT YOU WILL SEE:**
-
-The table row looks like this (values on top, headers below):
-```
-Row 1 (values):    Used    03/05/2013    29705    Yes    Private Driveway
-Row 2 (headers):   Purchase Purchase     km at   List    Purchase Winter Parking
-                   Condition Date         Purchase Price  Price    Tires  at Night
-```
-
-**CORRECT EXTRACTION PROCESS:**
-
-1. For `km_at_purchase`:
-   - Find header: "km at Purchase"
-   - Look directly below "km at Purchase" header
-   - See: BLANK/EMPTY cell
-   - Result: `km_at_purchase = null` ✅
-
-2. For `list_price_new`:
-   - Find header: "List Price New"
-   - Look directly below "List Price New" header
-   - See: "29705"
-   - Result: `list_price_new = "29705"` ✅
-
-3. For `purchase_price`:
-   - Find header: "Purchase Price"
-   - Look directly below "Purchase Price" header
-   - See: BLANK/EMPTY cell
-   - Result: `purchase_price = null` ✅
-
-**CRITICAL REMINDER:**
-- If you see "29705" but it's NOT directly under "km at Purchase" header → DO NOT use it for km_at_purchase!
-- If "km at Purchase" column is blank → km_at_purchase MUST be null, even if you see "29705" in the next column!
-- Each field reads from its OWN column only - never borrow from neighbors!
-
-## ⚠️ CRITICAL: Vehicle Information Table Column Alignment ⚠️
-
-**STOP AND READ THIS CAREFULLY BEFORE EXTRACTING VEHICLE BASIC INFORMATION FIELDS!**
-
-The vehicle information table contains fields like: Annual km, Business km, Daily km, Garaging Location, Single Vehicle MVD, Leased, Cylinders, etc.
-
-**THE EXACT PROCESS YOU MUST FOLLOW:**
-
-For EACH field (annual_km, business_km, daily_km, garaging_location, cylinders, etc.):
-
-1. **FIND THE COLUMN HEADER**: Search for the exact header text (e.g., "Daily km", "Cylinders")
-2. **LOOK DIRECTLY BELOW THAT HEADER**: Read ONLY the cell that is directly under that specific header
-3. **CHECK IF CELL IS BLANK**: 
-   - If the cell directly under the header is EMPTY/BLANK → return null (or empty string for km fields)
-   - If the cell directly under the header has a value → use that value
-4. **DO NOT SHIFT VALUES**: Even if a field is blank, DO NOT take values from adjacent columns!
-
-**COMMON MISTAKE TO AVOID:**
-
-❌ **WRONG**: "I see '4' after 'Daily km' header, so daily_km = '4'"
-   - But actually "4" is under "Cylinders" header, not "Daily km"!
-   - If "Daily km" column is blank → daily_km MUST be null/empty!
-
-✅ **CORRECT**: 
-   - Find header "Daily km" → Look directly below it → See BLANK → daily_km = null
-   - Find header "Cylinders" → Look directly below it → See "4" → cylinders = "4"
-
-**CONCRETE EXAMPLE:**
-
-Table structure:
-```
-Row 1 (values):    10000    (blank)    (blank)    ETOBICOKE M9W5X7    No    No    4
-Row 2 (headers):   Annual   Business   Daily      Garaging           Single Leased Cylinders
-                   km       km         km          Location            Vehicle MVD
-```
-
-**CORRECT EXTRACTION:**
-- annual_km: Find "Annual km" header → Below it: "10000" → annual_km = "10000" ✅
-- business_km: Find "Business km" header → Below it: BLANK → business_km = null ✅
-- daily_km: Find "Daily km" header → Below it: BLANK → daily_km = null ✅
-- garaging_location: Find "Garaging Location" header → Below it: "ETOBICOKE M9W5X7" → garaging_location = "ETOBICOKE M9W5X7" ✅
-- cylinders: Find "Cylinders" header → Below it: "4" → cylinders = "4" ✅
-
-**CRITICAL REMINDER:**
-- If "Daily km" column is blank → daily_km MUST be null/empty, even if you see "4" in the next column!
-- "4" belongs to "Cylinders" column, NOT "Daily km" column!
-- Each field reads from its OWN column only - never shift values from adjacent columns!
-
-Please carefully analyze all documents and extract accurate information to generate a complete JSON object. 
-
-## DEBUG MODE: Extraction Reasoning
-To help debug extraction issues, please include an "_extraction_reasoning" field at the root level of your JSON with DETAILED explanations for purchase-related fields.
-
-**REQUIRED EXPLANATION FOR EACH FIELD:**
-
-For `km_at_purchase`:
-- Step 1: Describe how you found the "km at Purchase" column header in the table
-- Step 2: Describe what you saw directly below that header (was it blank? was there a value?)
-- Step 3: Explain your final decision (null or value) and WHY
-- Step 4: If you saw "29705" anywhere, explain WHERE you saw it and why you did or didn't use it for km_at_purchase
-
-For `list_price_new`:
-- Step 1: Describe how you found the "List Price New" column header in the table
-- Step 2: Describe what you saw directly below that header (was it blank? was there a value like "29705"?)
-- Step 3: Explain your final decision (null or value) and WHY
-- Step 4: If you saw "29705", explain WHERE you saw it and confirm it was under "List Price New" header
-
-Example format:
-```json
-{{
-  "_extraction_reasoning": {{
-    "km_at_purchase": "I searched for the column header 'km at Purchase' in the table. I found it in column 3. When I looked directly below this header, the cell was completely blank/empty. Therefore, I set km_at_purchase to null. I did see '29705' in the document, but it was in column 4 under 'List Price New' header, so I correctly did NOT use it for km_at_purchase.",
-    "list_price_new": "I searched for the column header 'List Price New' in the table. I found it in column 4. When I looked directly below this header, I saw the value '29705'. Therefore, I set list_price_new to '29705'. This value was directly under the 'List Price New' header, so it belongs to this field."
-  }},
-  ... rest of JSON ...
-}}
-```
-
-## FINAL REMINDER BEFORE YOU START EXTRACTING:
-
-**FOR PURCHASE TABLE FIELDS (km_at_purchase, list_price_new, purchase_price):**
-- Each field reads from its OWN column header ONLY
-- If a column is blank, that field = null (DO NOT borrow from next column!)
-- "29705" under "List Price New" header → list_price_new = "29705"
-- "29705" NOT under "km at Purchase" header → km_at_purchase = null (even if you see "29705" nearby!)
-
-**DO NOT READ LEFT-TO-RIGHT! MATCH BY HEADER NAME!**
-
-## ⚠️ FINAL OUTPUT VALIDATION - CHECK THIS BEFORE RETURNING JSON ⚠️
-
-**MANDATORY CHECK FOR CAA MEMBERSHIP FIELDS:**
-
-Before outputting your final JSON, you MUST verify:
-
-1. Check `application_info.caa_membership` value:
-   - If it is "Yes":
-     * Check `application_info.caa_membership_number` value
-     * If `caa_membership_number` is null, empty string "", or missing:
-       → ⚠️ INVALID STATE! DO NOT OUTPUT THIS JSON!
-       → You MUST re-search the documents for the membership number
-       → Search for: "Group discount apply: yes - CAA | Member #: [NUMBER]"
-       → Look in later sections of Application PDF and all sections of Quote PDF
-       → Extract the number from the SAME LINE as the pattern
-       → Only output JSON when you have found and extracted the membership number
-   
-2. Final validation rule:
-   - ✅ VALID: `caa_membership: "Yes"` AND `caa_membership_number: "6202822425653003"` (has value)
-   - ✅ VALID: `caa_membership: "No"` AND `caa_membership_number: ""` or null (can be empty)
-   - ❌ INVALID: `caa_membership: "Yes"` AND `caa_membership_number: ""` or null (MUST re-search!)
-
-**If you find yourself about to output `caa_membership: "Yes"` with an empty `caa_membership_number`, STOP and re-search the documents!**
-
-IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks outside the JSON. Start your response directly with {{ and end with }}."""
+        date_rule, caa_claim_policy_rule, caa_membership_rule = prompt_caa_memo.build_rules(self._is_caa_company())
+        prompt += prompt_caa_memo.build_critical_extraction_block(
+            date_rule=date_rule,
+            caa_claim_policy_rule=caa_claim_policy_rule,
+            caa_membership_rule=caa_membership_rule,
+        )
         
         return prompt
     
@@ -1447,23 +1081,49 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             raise
 
     def _call_anthropic(self, prompt: str) -> str:
-        """Call Anthropic API directly and return text response."""
+        """Call Anthropic API with streaming and return full text response."""
         if not self.client:
             raise RuntimeError("Anthropic client is not initialized")
+        print("[Step 3] Streaming model response...")
+        chunks = []
+        stop_reason = None
+        try:
+            with self.client.messages.stream(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            ) as stream:
+                for text in stream.text_stream:
+                    chunks.append(text)
+                final_message = stream.get_final_message()
+                stop_reason = getattr(final_message, "stop_reason", None)
+        except Exception as e:
+            message = str(e)
+            if "longer than 10 minutes" in message.lower():
+                raise RuntimeError(
+                    "请求预计耗时超过 10 分钟，请使用 streaming（当前已启用）或降低 max_tokens / 精简输入文档。"
+                ) from e
+            raise RuntimeError(f"调用模型失败：{message}") from e
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            temperature=self.temperature,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
+        result_text = "".join(chunks)
+        print(
+            f"[Step 3] Streaming completed. stop_reason={stop_reason}, "
+            f"response_chars={len(result_text)}"
         )
-        print("[Step 3] API call successful!")
-        return response.content[0].text
+        if stop_reason == "max_tokens":
+            raise RuntimeError(
+                "模型因达到 max_tokens 被截断，返回内容可能不是完整 JSON。"
+                "请提高 config 中的 max_tokens，或精简提示/字段说明。"
+            )
+        if not result_text.strip():
+            raise RuntimeError("模型返回为空，请检查输入文档内容或稍后重试。")
+        return result_text
 
     def _call_gateway(self, documents: Dict[str, str]) -> Dict:
         """Call internal gateway service and return JSON object."""
@@ -1493,24 +1153,26 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
     @staticmethod
     def _parse_response_json(result_text: str) -> Dict:
         """Parse model text response into JSON object."""
-        try:
-            return json.loads(result_text)
-        except json.JSONDecodeError:
-            json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
-            raise ValueError("No valid JSON found in response")
+        return json_generator_pure.parse_response_json(result_text)
     
     def _validate_and_clean_json(self, data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
         """Validate and clean generated JSON"""
         # Ensure required fields exist
-        required_fields = [
+        legacy_required_fields = [
             "applicant_information",
             "address",
             "application_info",
             "drivers_information",
             "vehicles_information"
         ]
+        if getattr(self, "use_company_schema_validation", False):
+            required_fields = get_required_top_level_fields(
+                self.company,
+                self.fields_config,
+                legacy_required_fields,
+            )
+        else:
+            required_fields = legacy_required_fields
         
         for field in required_fields:
             if field not in data:
@@ -1527,67 +1189,14 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         if "coverages_information" in data and not isinstance(data["coverages_information"], dict):
             data["coverages_information"] = {}
 
-        # CAA-specific post-processing and normalization
-        if self._should_apply_caa_dob_normalization(data):
-            # 1) Normalize DOB fields
-            data, changed_count = self._normalize_caa_birth_dates(data)
-            if changed_count > 0:
-                print(f"[INFO] Normalized {changed_count} date_of_birth field(s) to MM/DD/YYYY")
-            # 2) Fix common vehicle purchase table issues
-            data, corrected_vehicles = self._apply_caa_vehicle_purchase_sanity(data)
-            if corrected_vehicles > 0:
-                print(f"[INFO] Corrected purchase table column misalignment in {corrected_vehicles} vehicle(s)")
-            # 3) Fix vehicle information table column misalignment (daily_km, business_km, cylinders, etc.)
-            data, misalignment_fixes = self._fix_vehicle_table_column_misalignment(data)
-            if misalignment_fixes > 0:
-                print(f"[INFO] Fixed {misalignment_fixes} vehicle information table column misalignment issue(s)")
-            # 4) Enforce CAA Auto Submission JSON structure/rules
-            data = self._apply_caa_output_normalization(data, documents)
-
-        # Intact-specific post-processing
-        if self._is_intact_company():
-            data, intact_date_fixes = self._normalize_intact_dates(data)
-            if intact_date_fixes > 0:
-                print(f"[INFO] Normalized {intact_date_fixes} Intact date field(s) to YYYY-MM-DD")
-            data = self._remove_non_intact_membership_fields(data)
-        
-        # Property-specific post-processing
-        if self.company.endswith("_property"):
-            data = self._normalize_property_names(data)
-            data = self._normalize_property_structure(data)
+        data = company_postprocess_pipeline.run(self, data, documents)
         
         return data
 
     @staticmethod
     def _format_to_mmddyyyy(date_value):
         """Convert common date formats to MM/DD/YYYY; return original if conversion fails."""
-        if date_value is None:
-            return date_value
-        if not isinstance(date_value, str):
-            return date_value
-
-        value = date_value.strip()
-        if not value:
-            return date_value
-
-        # Already correct format
-        if re.match(r"^\d{2}/\d{2}/\d{4}$", value):
-            return value
-
-        # Fast path for ISO date
-        iso_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", value)
-        if iso_match:
-            year, month, day = iso_match.groups()
-            return f"{month}/{day}/{year}"
-
-        for fmt in ("%Y/%m/%d", "%m-%d-%Y", "%m/%d/%Y", "%Y.%m.%d"):
-            try:
-                dt = datetime.strptime(value, fmt)
-                return dt.strftime("%m/%d/%Y")
-            except ValueError:
-                continue
-
-        return date_value
+        return json_generator_pure.format_to_mmddyyyy(date_value)
 
     def _should_apply_caa_dob_normalization(self, data: Dict) -> bool:
         """Apply CAA DOB normalization only for explicit CAA mode."""
@@ -1596,63 +1205,35 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
     @staticmethod
     def _format_to_yyyymmdd(date_value):
         """Convert common date formats to YYYY-MM-DD; return original if conversion fails."""
-        if date_value is None or not isinstance(date_value, str):
-            return date_value
+        return json_generator_pure.format_to_yyyymmdd(date_value)
 
-        value = date_value.strip()
-        if not value:
-            return date_value
+    @staticmethod
+    def _format_to_ddmmyyyy(date_value):
+        """Convert common date formats to DD-MM-YYYY; return original if conversion fails."""
+        return json_generator_pure.format_to_ddmmyyyy(date_value)
 
-        # Already in target format
-        if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
-            return value
+    @staticmethod
+    def _format_to_yyyymm(date_value):
+        """Convert common date formats to YYYY-MM; return original if conversion fails."""
+        return json_generator_pure.format_to_yyyymm(date_value)
 
-        # Allow datetime strings by trimming time part
-        if " " in value and re.match(r"^\d{4}-\d{2}-\d{2}\s", value):
-            return value.split(" ", 1)[0]
-        if "T" in value and re.match(r"^\d{4}-\d{2}-\d{2}T", value):
-            return value.split("T", 1)[0]
+    @staticmethod
+    def _get_configured_date_format(field_info: Dict) -> str:
+        """Infer target date format from field config metadata."""
+        if not isinstance(field_info, dict):
+            return "YYYY-MM-DD"
+        hints = f"{field_info.get('description', '')} {field_info.get('extraction_logic', '')}".upper()
+        if "YYYY-MM FORMAT" in hints or "FORMAT: YYYY-MM" in hints:
+            return "YYYY-MM"
+        if "DD-MM-YYYY" in hints:
+            return "DD-MM-YYYY"
+        if "MM/DD/YYYY" in hints:
+            return "MM/DD/YYYY"
+        return "YYYY-MM-DD"
 
-        # Keep YYYY-MM as-is for month-only fields
-        ym_match = re.match(r"^(\d{4})[-/](\d{1,2})$", value)
-        if ym_match:
-            year, month = ym_match.groups()
-            month_num = int(month)
-            if 1 <= month_num <= 12:
-                return f"{year}-{month_num:02d}"
-            return date_value
-
-        # Handle generic d/m/y or d-m-y with basic disambiguation
-        dmy_match = re.match(r"^(\d{1,2})([-/])(\d{1,2})\2(\d{4})$", value)
-        if dmy_match:
-            first, sep, second, year = dmy_match.groups()
-            first_num = int(first)
-            second_num = int(second)
-            if sep == "/":
-                # Slash values in source docs are usually MM/DD/YYYY
-                month, day = first_num, second_num
-                if first_num > 12 and second_num <= 12:
-                    day, month = first_num, second_num
-            else:
-                # Dash values in Intact outputs were frequently DD-MM-YYYY
-                day, month = first_num, second_num
-                if second_num > 12 and first_num <= 12:
-                    month, day = first_num, second_num
-            if 1 <= month <= 12 and 1 <= day <= 31:
-                return f"{year}-{month:02d}-{day:02d}"
-
-        for fmt in ("%Y/%m/%d", "%d-%m-%Y", "%m-%d-%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y.%m.%d"):
-            try:
-                dt = datetime.strptime(value, fmt)
-                return dt.strftime("%Y-%m-%d")
-            except ValueError:
-                continue
-
-        return date_value
-
-    def _collect_date_field_names(self) -> set:
-        """Collect all field names configured as mode=date for current company."""
-        names = set()
+    def _collect_date_field_formats(self) -> Dict[str, str]:
+        """Collect target date format per field configured as mode=date."""
+        field_formats = {}
 
         def walk(node):
             if not isinstance(node, dict):
@@ -1662,19 +1243,19 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
                 for field_name, field_info in fields.items():
                     if isinstance(field_info, dict):
                         if field_info.get("mode") == "date":
-                            names.add(field_name)
+                            field_formats[field_name] = self._get_configured_date_format(field_info)
                         walk(field_info)
 
         walk(self.fields_config)
-        return names
+        return field_formats
 
     def _normalize_intact_dates(self, data: Dict):
-        """Normalize Intact date fields to YYYY-MM-DD based on config date fields."""
+        """Normalize Intact date fields based on configured per-field target formats."""
         if not isinstance(data, dict):
             return data, 0
 
-        date_fields = self._collect_date_field_names()
-        if not date_fields:
+        field_formats = self._collect_date_field_formats()
+        if not field_formats:
             return data, 0
 
         changed_count = 0
@@ -1683,11 +1264,41 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
             nonlocal changed_count
             if isinstance(node, dict):
                 for key, value in node.items():
-                    if key in date_fields and isinstance(value, str):
-                        normalized = self._format_to_yyyymmdd(value)
-                        if normalized != value:
-                            node[key] = normalized
-                            changed_count += 1
+                    if key in field_formats:
+                        target = field_formats[key]
+                        if isinstance(value, str):
+                            if target == "DD-MM-YYYY":
+                                normalized = self._format_to_ddmmyyyy(value)
+                            elif target == "YYYY-MM":
+                                normalized = self._format_to_yyyymm(value)
+                            elif target == "MM/DD/YYYY":
+                                normalized = self._format_to_mmddyyyy(value)
+                            else:
+                                normalized = self._format_to_yyyymmdd(value)
+                            if normalized != value:
+                                node[key] = normalized
+                                changed_count += 1
+                        elif isinstance(value, list):
+                            updated = []
+                            list_changed = False
+                            for item in value:
+                                if not isinstance(item, str):
+                                    updated.append(item)
+                                    continue
+                                if target == "DD-MM-YYYY":
+                                    normalized = self._format_to_ddmmyyyy(item)
+                                elif target == "YYYY-MM":
+                                    normalized = self._format_to_yyyymm(item)
+                                elif target == "MM/DD/YYYY":
+                                    normalized = self._format_to_mmddyyyy(item)
+                                else:
+                                    normalized = self._format_to_yyyymmdd(item)
+                                updated.append(normalized)
+                                if normalized != item:
+                                    list_changed = True
+                                    changed_count += 1
+                            if list_changed:
+                                node[key] = updated
                     walk(value)
             elif isinstance(node, list):
                 for item in node:
@@ -1705,8 +1316,49 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
         if isinstance(app_info, dict):
             app_info.pop("caa_membership", None)
             app_info.pop("caa_membership_number", None)
-            if len(app_info) == 0:
-                data.pop("application_info", None)
+        elif app_info is None:
+            data["application_info"] = {}
+        return data
+
+    @staticmethod
+    def _normalize_intact_structure(data: Dict) -> Dict:
+        """Apply Intact-specific structural cleanup rules."""
+        if not isinstance(data, dict):
+            return data
+
+        if "application_info" not in data or not isinstance(data.get("application_info"), dict):
+            data["application_info"] = {}
+
+        interest = data.get("interest")
+        if isinstance(interest, dict) and interest.get("has_loan") == "No":
+            data["interest"] = {"has_loan": "No"}
+
+        claim = data.get("claim")
+        if isinstance(claim, dict) and claim.get("has_claim") == "No":
+            data["claim"] = {"has_claim": "No"}
+
+        drivers = data.get("driver")
+        if isinstance(drivers, list):
+            for driver in drivers:
+                if not isinstance(driver, dict):
+                    continue
+
+                if driver.get("lapse_in_insurance") != "Yes":
+                    driver.pop("lapse_in_insurance_description", None)
+
+                licence_class = driver.get("licence_class")
+                if licence_class == "G1":
+                    driver.pop("g2_class_date_licensed", None)
+                    driver.pop("g_class_date_licensed", None)
+                elif licence_class == "G2":
+                    driver.pop("g_class_date_licensed", None)
+                elif licence_class == "G":
+                    pass
+                else:
+                    driver.pop("g1_class_date_licensed", None)
+                    driver.pop("g2_class_date_licensed", None)
+                    driver.pop("g_class_date_licensed", None)
+
         return data
 
     def _normalize_caa_birth_dates(self, data: Dict):
@@ -1738,37 +1390,16 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
 
     @staticmethod
     def _is_missing(value) -> bool:
-        if value is None:
-            return True
-        if isinstance(value, str) and not value.strip():
-            return True
-        return False
+        return json_generator_pure.is_missing(value)
 
     @staticmethod
     def _extract_digits_as_int(value):
-        if not isinstance(value, str):
-            return None
-        digits = re.sub(r"\D", "", value)
-        if not digits:
-            return None
-        try:
-            return int(digits)
-        except ValueError:
-            return None
+        return json_generator_pure.extract_digits_as_int(value)
 
     @staticmethod
     def _is_non_price_text(value) -> bool:
         """Check if value is clearly non-price text (like parking locations, Yes/No, etc.)"""
-        if not isinstance(value, str):
-            return False
-        value_lower = value.strip().lower()
-        # Common non-price patterns
-        non_price_patterns = [
-            "private driveway", "private garage", "private street", "private lot", "private parking",
-            "street", "garage", "driveway", "parking",
-            "yes", "no", "new", "used", "demo"
-        ]
-        return value_lower in non_price_patterns
+        return json_generator_pure.is_non_price_text(value)
 
     def _apply_caa_vehicle_purchase_sanity(self, data: Dict):
         """
@@ -2366,314 +1997,15 @@ IMPORTANT: You must return ONLY valid JSON. Do not include any explanatory text,
     
     @staticmethod
     def _normalize_name_field(name: str) -> str:
-        """
-        Normalize name field to ensure:
-        - At least 2 words separated by spaces
-        - Last word (Last Name) has at least 2 characters
-        - Multiple spaces normalized to single space
-        - Remove special characters and invisible characters
-        - Preserve Unicode characters (including Chinese characters)
-        """
-        if not isinstance(name, str):
-            return name
-        
-        # Remove leading/trailing whitespace
-        name = name.strip()
-        
-        if not name:
-            return name
-        
-        # Remove invisible characters (zero-width spaces, etc.)
-        # Keep Unicode word characters, spaces, hyphens, and dots
-        name = re.sub(r'[\u200B-\u200D\uFEFF]', '', name)  # Remove zero-width characters
-        
-        # More permissive regex: keep Unicode letters, digits, spaces, hyphens, dots, apostrophes
-        # Use \w which matches Unicode word characters (including Chinese) in Python 3
-        # Remove only clearly problematic characters (control chars, symbols except hyphens/apostrophes)
-        try:
-            # Python 3: \w matches Unicode word characters by default
-            # Remove characters that are NOT: word chars, spaces, hyphens, apostrophes, dots
-            name = re.sub(r'[^\w\s\-\'\.]', '', name, flags=re.UNICODE)
-        except:
-            # Fallback: if Unicode flag fails, use ASCII-safe pattern
-            # But this should rarely happen in Python 3
-            name = re.sub(r'[^\w\s\-\'\.]', '', name)
-        
-        # Normalize multiple spaces to single space
-        name = re.sub(r'\s+', ' ', name)
-        
-        # Remove leading/trailing spaces again after normalization
-        name = name.strip()
-        
-        if not name:
-            return name
-        
-        # Split into words (preserve all non-empty words)
-        words = [w.strip() for w in name.split() if w.strip()]
-        
-        if len(words) == 0:
-            return name
-        
-        # Clean each word: remove only clearly problematic characters, preserve Unicode
-        cleaned_words = []
-        for word in words:
-            # Remove only non-word, non-hyphen, non-apostrophe characters
-            # Preserve Unicode letters (including Chinese) - \w matches Unicode word chars in Python 3
-            try:
-                cleaned_word = re.sub(r'[^\w\-\']', '', word, flags=re.UNICODE)
-            except:
-                cleaned_word = re.sub(r'[^\w\-\']', '', word)
-            if cleaned_word:  # Only add non-empty words
-                cleaned_words.append(cleaned_word)
-        
-        if len(cleaned_words) == 0:
-            return "Unknown Unknown"
-        
-        # CRITICAL: Validate that we have at least 2 words before proceeding
-        if len(cleaned_words) < 2:
-            # If only one word, duplicate it to create a valid name
-            single_word = cleaned_words[0]
-            if len(single_word) >= 2:
-                return f"{single_word} {single_word}"
-            else:
-                # If less than 2 characters, pad it
-                padded = single_word.ljust(2, 'X')
-                return f"{single_word} {padded}"
-        
-        # Check if last word (Last Name) has at least 2 characters
-        last_word = cleaned_words[-1]
-        if len(last_word) < 2:
-            # If last word is too short, try to combine with previous word
-            if len(cleaned_words) >= 2:
-                # Use the second-to-last word as last name if it's longer
-                second_last = cleaned_words[-2]
-                if len(second_last) >= 2:
-                    # Use second-to-last as last name, combine rest (including the short last word) as first name
-                    first_name_parts = cleaned_words[:-2] + [last_word]
-                    first_name = ' '.join(first_name_parts) if first_name_parts else second_last
-                    # CRITICAL: Ensure first_name is not empty
-                    if not first_name or not first_name.strip():
-                        first_name = second_last if len(second_last) >= 1 else "Unknown"
-                    return f"{first_name} {second_last}"
-                else:
-                    # Both are short, combine them as last name
-                    combined_last_name = second_last + last_word
-                    if len(combined_last_name) >= 2:
-                        first_name = ' '.join(cleaned_words[:-2]) if len(cleaned_words) > 2 else "Unknown"
-                        # CRITICAL: Ensure first_name is not empty
-                        if not first_name or not first_name.strip():
-                            first_name = "Unknown"
-                        return f"{first_name} {combined_last_name}"
-                    else:
-                        # Pad the combined name
-                        padded_last = combined_last_name.ljust(2, 'X')
-                        first_name = ' '.join(cleaned_words[:-2]) if len(cleaned_words) > 2 else "Unknown"
-                        # CRITICAL: Ensure first_name is not empty
-                        if not first_name or not first_name.strip():
-                            first_name = "Unknown"
-                        return f"{first_name} {padded_last}"
-            else:
-                # Only one word, should not reach here (handled above), but handle it
-                padded_last = last_word.ljust(2, 'X')
-                return f"{last_word} {padded_last}"
-        
-        # Final validation: ensure we have at least 2 words and First Name is not empty
-        if len(cleaned_words) < 2:
-            if len(cleaned_words) == 1:
-                single_word = cleaned_words[0]
-                if len(single_word) >= 2:
-                    return f"{single_word} {single_word}"
-                else:
-                    padded = single_word.ljust(2, 'X')
-                    return f"{single_word} {padded}"
-            else:
-                return "Unknown Unknown"
-        
-        # CRITICAL: Final check - ensure First Name (all words except last) is not empty
-        first_name_parts = cleaned_words[:-1]
-        first_name = ' '.join(first_name_parts)
-        
-        # If First Name is empty after joining, something went wrong
-        if not first_name or not first_name.strip():
-            # This should not happen, but handle it gracefully
-            if len(cleaned_words) >= 2:
-                # Use first word as First Name
-                first_name = cleaned_words[0]
-            else:
-                first_name = "Unknown"
-        
-        # Ensure Last Name has at least 2 characters
-        last_name = cleaned_words[-1]
-        if len(last_name) < 2:
-            last_name = last_name.ljust(2, 'X')
-        
-        result = f"{first_name} {last_name}"
-        
-        # Final validation: split result and verify
-        result_words = result.split()
-        if len(result_words) < 2:
-            # This should not happen, but handle it
-            if len(result_words) == 1:
-                single = result_words[0]
-                return f"{single} {single}"
-            else:
-                return "Unknown Unknown"
-        
-        # Verify First Name is not empty
-        result_first_name = ' '.join(result_words[:-1])
-        if not result_first_name or not result_first_name.strip():
-            # This is the critical error case - fix it
-            result_first_name = result_words[0] if len(result_words) > 0 else "Unknown"
-            result = f"{result_first_name} {result_words[-1]}"
-        
-        return result
+        return json_generator_pure.normalize_name_field(name)
     
     @staticmethod
     def _validate_and_debug_name(name: str, field_name: str):
-        """
-        Validate name field and print debug information.
-        CRITICAL: This method detects and reports when First Name is empty.
-        """
-        if not isinstance(name, str):
-            print(f"[WARNING] {field_name} is not a string: {type(name)}")
-            return
-        
-        name = name.strip()
-        if not name:
-            print(f"[ERROR] {field_name} is empty or contains only whitespace")
-            return
-        
-        # Split into words (preserve all words)
-        words = [w.strip() for w in name.split() if w.strip()]
-        word_count = len(words)
-        
-        if word_count < 2:
-            print(f"[ERROR] {field_name} has only {word_count} word(s), need at least 2")
-            print(f"  Original name: '{name}'")
-            print(f"  Words: {words}")
-            return
-        
-        # Extract first name and last name
-        first_name_parts = words[:-1]
-        first_name = ' '.join(first_name_parts)
-        last_name = words[-1]
-        
-        # CRITICAL: Check if First Name is empty
-        if not first_name or not first_name.strip():
-            print(f"[ERROR] {field_name} - First Name is EMPTY after parsing!")
-            print(f"  Original name: '{name}'")
-            print(f"  Word count: {word_count}")
-            print(f"  Words: {words}")
-            print(f"  First Name parts: {first_name_parts}")
-            print(f"  First Name (joined): '{first_name}'")
-            print(f"  Last Name: '{last_name}'")
-            print(f"  [CRITICAL] This indicates a parsing error - First Name should not be empty!")
-            return
-        
-        # Check lengths
-        first_name_len = len(first_name)
-        last_name_len = len(last_name)
-        
-        # Print debug info
-        print(f"[DEBUG] {field_name} validation:")
-        print(f"  Original name: '{name}'")
-        print(f"  Word count: {word_count}")
-        print(f"  Words: {words}")
-        print(f"  First Name: '{first_name}' (length: {first_name_len})")
-        print(f"  Last Name: '{last_name}' (length: {last_name_len})")
-        
-        # Validate
-        if first_name_len < 1:
-            print(f"  [ERROR] First Name is too short (length: {first_name_len}, need >= 1)")
-            print(f"  [CRITICAL] First Name must have at least 1 character!")
-        
-        if last_name_len < 2:
-            print(f"  [ERROR] Last Name is too short (length: {last_name_len}, need >= 2)")
-            print(f"  [CRITICAL] Last Name must have at least 2 characters!")
-        
-        # Check for special characters (but allow Unicode)
-        try:
-            if re.search(r'[^\w\s\-\'\.]', name, flags=re.UNICODE):
-                print(f"  [WARNING] Name contains special characters (excluding Unicode letters)")
-        except:
-            if re.search(r'[^\w\s\-\'\.]', name):
-                print(f"  [WARNING] Name contains special characters")
-        
-        # Check for multiple spaces
-        if '  ' in name:
-            print(f"  [WARNING] Name contains multiple consecutive spaces")
-        
-        # Final validation result
-        if first_name_len >= 1 and last_name_len >= 2:
-            print(f"  [OK] Name format is valid: First Name='{first_name}', Last Name='{last_name}'")
-        else:
-            print(f"  [ERROR] Name format is INVALID!")
-            if first_name_len < 1:
-                print(f"    - First Name is empty or too short")
-            if last_name_len < 2:
-                print(f"    - Last Name is too short")
+        return json_generator_pure.validate_and_debug_name(name, field_name)
     
     @staticmethod
     def _clean_coverage_amount(value: str) -> str:
-        """
-        清理coverage_amount字段，确保符合格式要求：
-        1. 不包含$符号
-        2. 不包含文字描述（如"Ded."）
-        3. 免赔额为0时使用"0"
-        4. 使用标准数字格式或K/M后缀
-        5. 特殊值精确匹配（"Standard"、"Inc."、"60 Months"等）
-        """
-        if value is None:
-            return value
-        
-        if not isinstance(value, str):
-            value = str(value)
-        
-        original_value = value
-        value = value.strip()
-        
-        # 保留特殊值（不处理）
-        special_values = ["Standard", "Inc.", "Included", "N/A"]
-        # 检查是否包含时间单位（如"60 Months"）
-        if re.search(r'\d+\s*(Months?|Days?|Years?)', value, re.IGNORECASE):
-            return value
-        
-        # 检查是否是特殊值（不区分大小写）
-        if any(value.upper() == sv.upper() for sv in special_values):
-            return value
-        
-        # 处理0值的情况
-        zero_patterns = [
-            r'^no\s+deductible$',
-            r'^\$0\s*ded\.?$',
-            r'^0\s*ded\.?$',
-            r'^\$0$',
-            r'^0$'
-        ]
-        for pattern in zero_patterns:
-            if re.match(pattern, value, re.IGNORECASE):
-                return "0"
-        
-        # 去除$符号
-        value = value.replace('$', '')
-        
-        # 去除常见的文字描述（如"Ded.", "Deductible"等）
-        # 但保留数字部分
-        value = re.sub(r'\s*ded\.?\s*$', '', value, flags=re.IGNORECASE)
-        value = re.sub(r'\s*deductible\s*$', '', value, flags=re.IGNORECASE)
-        
-        # 清理多余的空格
-        value = value.strip()
-        
-        # 如果清理后为空，返回"0"
-        if not value:
-            return "0"
-        
-        # 如果值发生了变化，打印日志
-        if value != original_value:
-            print(f"[INFO] Cleaned coverage_amount: '{original_value}' -> '{value}'")
-        
-        return value
+        return json_generator_pure.clean_coverage_amount(value)
     
     def _normalize_property_structure(self, data: Dict) -> Dict:
         """
