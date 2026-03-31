@@ -1,0 +1,11 @@
+{
+  "company_suffix_patterns": [
+    "_auto",
+    "_property"
+  ],
+  "legacy_aliases": {
+    "caa": "caa_auto_fields_config.json",
+    "intact": "intact_auto_fields_config.json"
+  },
+  "default_template": "{company_lower}_fields_config.json"
+}

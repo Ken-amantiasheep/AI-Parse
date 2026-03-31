@@ -5,6 +5,8 @@ gateway_service/env
 # 输出文件
 output/*.json
 logs/
+build/
+dist/
 
 # Python缓存
 __pycache__/
