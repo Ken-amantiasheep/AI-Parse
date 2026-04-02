@@ -8,6 +8,80 @@ def _is_missing(value) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+# Staging keys on driver[i] (i>=1); promoted to root driver_{i+1}_information / driver_{i+1}_address.
+_DRIVER_IDENTITY_KEYS = (
+    "last_name",
+    "first_name",
+    "gender",
+    "date_of_birth",
+    "marital_status",
+)
+_DRIVER_ADDRESS_KEYS = ("postal_code", "full_address")
+
+
+def _promote_additional_driver_identity_blocks(data: Dict) -> Dict:
+    """
+    For Intact Auto, second and subsequent drivers get root-level blocks matching
+    applicant_information + address shape: driver_2_information, driver_2_address, etc.
+    Values are taken from the corresponding driver[] element, then those keys are removed
+    from the driver object. The first driver must not carry these staging keys.
+    """
+    if not isinstance(data, dict):
+        return data
+
+    drivers = data.get("driver")
+    if not isinstance(drivers, list):
+        return data
+
+    root_address = data.get("address") if isinstance(data.get("address"), dict) else {}
+
+    # Strip staging keys from first driver if the model duplicated them.
+    if drivers and isinstance(drivers[0], dict):
+        for k in _DRIVER_IDENTITY_KEYS + _DRIVER_ADDRESS_KEYS:
+            drivers[0].pop(k, None)
+
+    for idx in range(1, len(drivers)):
+        d = drivers[idx]
+        if not isinstance(d, dict):
+            continue
+        n = idx + 1
+        info_key = f"driver_{n}_information"
+        addr_key = f"driver_{n}_address"
+
+        info = {}
+        for k in _DRIVER_IDENTITY_KEYS:
+            v = d.get(k)
+            if not _is_missing(v):
+                info[k] = v
+
+        addr = {}
+        for k in _DRIVER_ADDRESS_KEYS:
+            v = d.get(k)
+            if not _is_missing(v):
+                addr[k] = v
+
+        if not addr.get("postal_code") and not _is_missing(root_address.get("postal_code")):
+            addr["postal_code"] = root_address["postal_code"]
+        if not addr.get("full_address") and not _is_missing(root_address.get("full_address")):
+            addr["full_address"] = root_address["full_address"]
+
+        if info:
+            data[info_key] = info
+        if addr:
+            data[addr_key] = addr
+
+        for k in _DRIVER_IDENTITY_KEYS + _DRIVER_ADDRESS_KEYS:
+            d.pop(k, None)
+
+    # Drop stale driver_N_* from a previous extraction if driver count shrank.
+    for n in range(2, 30):
+        if n > len(drivers):
+            data.pop(f"driver_{n}_information", None)
+            data.pop(f"driver_{n}_address", None)
+
+    return data
+
+
 def _extract_broker_number_from_documents(documents: Optional[Dict[str, str]]) -> Optional[str]:
     if not isinstance(documents, dict) or not documents:
         return None
@@ -196,4 +270,5 @@ def apply(generator, data: Dict, documents: Optional[Dict[str, str]] = None) -> 
         print(f"[INFO] Normalized {intact_date_fixes} Intact date field(s) by configured format")
     data = generator._remove_non_intact_membership_fields(data)
     data = _apply_intact_defaults(generator, data, documents)
+    data = _promote_additional_driver_identity_blocks(data)
     return generator._normalize_intact_structure(data)

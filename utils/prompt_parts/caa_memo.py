@@ -248,7 +248,28 @@ For EACH field (annual_km, business_km, daily_km, garaging_location, cylinders, 
    - If the cell directly under the header has a value → use that value
 4. **DO NOT SHIFT VALUES**: Even if a field is blank, DO NOT take values from adjacent columns!
 
-**COMMON MISTAKE TO AVOID:**
+## ⚠️ CRITICAL: business_km and primary_use Logic Rule ⚠️
+
+**business_km can ONLY have a value when primary_use is 'Business'.**
+
+- If primary_use is "Pleasure" → business_km MUST be empty string "" (NEVER assign a number!)
+- If primary_use is "Commute" → business_km MUST be empty string ""
+- If primary_use is "Farm Use" → business_km MUST be empty string ""
+- If primary_use is "Business" → business_km MAY have a value (extract from the Business km column)
+
+**COMMON MISTAKE TO AVOID (business_km vs daily_km):**
+
+The table typically shows: Annual km | Business km | Daily km
+When primary_use is "Pleasure", the "Business km" cell is usually BLANK, and a number you see nearby likely belongs to "Daily km"!
+
+❌ **WRONG**: primary_use = "Pleasure", annual_km = "10352", business_km = "10", daily_km = ""
+   - "10" is under "Daily km" header, NOT "Business km"! And even if it were, business_km must be empty when primary_use is Pleasure!
+
+✅ **CORRECT**: primary_use = "Pleasure", annual_km = "10352", business_km = "", daily_km = "10"
+   - "10" is correctly read from the "Daily km" column
+   - business_km is empty because primary_use is "Pleasure"
+
+**OTHER COMMON MISTAKE TO AVOID:**
 
 ❌ **WRONG**: "I see '4' after 'Daily km' header, so daily_km = '4'"
    - But actually "4" is under "Cylinders" header, not "Daily km"!
@@ -258,7 +279,22 @@ For EACH field (annual_km, business_km, daily_km, garaging_location, cylinders, 
    - Find header "Daily km" → Look directly below it → See BLANK → daily_km = null
    - Find header "Cylinders" → Look directly below it → See "4" → cylinders = "4"
 
-**CONCRETE EXAMPLE:**
+**CONCRETE EXAMPLE 1 (Pleasure use):**
+
+Table structure:
+```
+Row 1 (values):    10352    (blank)    10         ETOBICOKE M9W5X7    No    No    4
+Row 2 (headers):   Annual   Business   Daily      Garaging           Single Leased Cylinders
+                   km       km         km          Location            Vehicle MVD
+```
+primary_use = "Pleasure"
+
+**CORRECT EXTRACTION:**
+- annual_km = "10352" (under "Annual km" header) ✅
+- business_km = "" (MUST be empty because primary_use is "Pleasure") ✅
+- daily_km = "10" (under "Daily km" header) ✅
+
+**CONCRETE EXAMPLE 2 (all blank km):**
 
 Table structure:
 ```
@@ -278,6 +314,7 @@ Row 2 (headers):   Annual   Business   Daily      Garaging           Single Leas
 - If "Daily km" column is blank → daily_km MUST be null/empty, even if you see "4" in the next column!
 - "4" belongs to "Cylinders" column, NOT "Daily km" column!
 - Each field reads from its OWN column only - never shift values from adjacent columns!
+- **business_km MUST be empty when primary_use is NOT "Business"** - this is a hard rule, not a suggestion!
 
 Please carefully analyze all documents and extract accurate information to generate a complete JSON object. 
 
@@ -320,6 +357,13 @@ Example format:
 **DO NOT READ LEFT-TO-RIGHT! MATCH BY HEADER NAME!**
 
 ## ⚠️ FINAL OUTPUT VALIDATION - CHECK THIS BEFORE RETURNING JSON ⚠️
+
+**MANDATORY CHECK FOR business_km vs primary_use:**
+
+For EACH vehicle, verify:
+- If primary_use is "Pleasure", "Commute", or "Farm Use" → business_km MUST be "" (empty) or null
+- If business_km has a non-empty value but primary_use is NOT "Business" → ⚠️ INVALID! Fix it by clearing business_km
+- Double-check that daily_km was not accidentally assigned to business_km
 
 **MANDATORY CHECK FOR CAA MEMBERSHIP FIELDS:**
 

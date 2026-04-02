@@ -305,14 +305,14 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract business kilometers for THIS specific vehicle. Return as string.",
-          "description": "Business kilometers (string type)"
+          "extraction_logic": "Extract business kilometers for THIS specific vehicle. IMPORTANT: business_km should ONLY have a value when primary_use is 'Business'. If primary_use is 'Pleasure', 'Commute', or 'Farm Use', business_km MUST be empty string ''. Do NOT confuse values from the adjacent 'Daily km' column with this field - read ONLY the cell directly under the 'Business km' header. Return as string.",
+          "description": "Business kilometers (string type) - only applicable when primary_use is Business"
         },
         "daily_km": {
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract daily kilometers for THIS specific vehicle. Return as string.",
+          "extraction_logic": "Extract daily kilometers for THIS specific vehicle. Read ONLY the cell directly under the 'Daily km' header - do NOT confuse this with values from adjacent columns like 'Business km'. This field is independent of primary_use and can have a value regardless of what primary_use is set to. Return as string.",
           "description": "Daily kilometers (string type)"
         },
         "garaging_location": {

@@ -273,7 +273,7 @@ def test_build_prompt_hash_is_stable_for_fixture():
     generator = _make_generator("Intact_Auto")
     prompt = generator._build_prompt({"quote": "abc", "application": "xyz"})
     digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-    assert digest == "45d4dc66f9a4eb27f1eede98ce72d5c9a25765f209b08183a393f300a29ca0d6"
+    assert digest == "4d785447a4f8ec336f2983a4ece0431bd0cbabad5eb7feb96cae71dc6af03bfc"
 
 
 def test_company_routing_resolution():
@@ -319,6 +319,72 @@ def test_company_schema_validation_uses_fields_config_when_enabled():
     assert "address" in cleaned
     assert "term" in cleaned
     assert "drivers_information" not in cleaned
+
+
+def test_intact_auto_promotes_additional_driver_identity_blocks():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {
+            "last_name": "GU",
+            "first_name": "MIN",
+        },
+        "address": {
+            "postal_code": "L6C2C5",
+            "full_address": "168 TRAIL RIDGE LANE, MARKHAM, ON",
+        },
+        "driver": [
+            {"licence_class": "G"},
+            {
+                "licence_class": "G",
+                "last_name": "DOE",
+                "first_name": "JANE",
+                "gender": "Female",
+                "date_of_birth": "1990-01-15",
+                "marital_status": "Single",
+                "postal_code": "M5V1A1",
+                "full_address": "1 Example St, Toronto, ON",
+            },
+        ],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert "last_name" not in cleaned["driver"][1]
+    assert cleaned["driver_2_information"]["last_name"] == "DOE"
+    assert cleaned["driver_2_information"]["first_name"] == "JANE"
+    assert cleaned["driver_2_address"]["postal_code"] == "M5V1A1"
+    assert cleaned["driver_2_address"]["full_address"] == "1 Example St, Toronto, ON"
+
+
+def test_intact_auto_additional_driver_address_falls_back_to_root():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {},
+        "address": {
+            "postal_code": "L6C2C5",
+            "full_address": "168 TRAIL RIDGE LANE, MARKHAM, ON",
+        },
+        "driver": [
+            {"licence_class": "G"},
+            {
+                "licence_class": "G",
+                "last_name": "DOE",
+                "first_name": "JANE",
+                "gender": "Female",
+                "date_of_birth": "1990-01-15",
+                "marital_status": "Single",
+            },
+        ],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert cleaned["driver_2_address"]["postal_code"] == "L6C2C5"
+    assert cleaned["driver_2_address"]["full_address"] == "168 TRAIL RIDGE LANE, MARKHAM, ON"
 
 
 def test_get_required_top_level_fields_from_config():
