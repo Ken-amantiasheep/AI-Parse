@@ -166,6 +166,27 @@ def test_validate_and_clean_json_for_caa_normalizes_birth_dates():
     assert cleaned["drivers_information"]["driver_1"]["date_of_birth"] == "02/01/1988"
 
 
+def test_validate_and_clean_json_for_caa_defaults_km_at_purchase_to_zero():
+    generator = _make_generator("CAA_Auto")
+    data = {
+        "applicant_information": {},
+        "drivers_information": {},
+        "application_info": {},
+        "address": {},
+        "vehicles_information": {
+            "vehicle_1": {
+                "km_at_purchase": None,
+            },
+            "vehicle_2": {},
+        },
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert cleaned["vehicles_information"]["vehicle_1"]["km_at_purchase"] == 0
+    assert cleaned["vehicles_information"]["vehicle_2"]["km_at_purchase"] == 0
+
+
 def test_validate_and_clean_json_for_property_keeps_structure_without_error():
     generator = _make_generator("CAA_property")
     data = {
@@ -273,7 +294,7 @@ def test_build_prompt_hash_is_stable_for_fixture():
     generator = _make_generator("Intact_Auto")
     prompt = generator._build_prompt({"quote": "abc", "application": "xyz"})
     digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-    assert digest == "4d785447a4f8ec336f2983a4ece0431bd0cbabad5eb7feb96cae71dc6af03bfc"
+    assert digest == "ce5b9916a7b867033bbac7f4cf5863c2c87129c3bff4707835e30c3fa7ffb6f5"
 
 
 def test_company_routing_resolution():
@@ -385,6 +406,40 @@ def test_intact_auto_additional_driver_address_falls_back_to_root():
 
     assert cleaned["driver_2_address"]["postal_code"] == "L6C2C5"
     assert cleaned["driver_2_address"]["full_address"] == "168 TRAIL RIDGE LANE, MARKHAM, ON"
+
+
+def test_caa_vehicle_table_keeps_single_digit_daily_km_when_not_cylinders():
+    """Regression: Pleasure + empty business_km + daily 8 must not be cleared as 'misalignment'."""
+    generator = _make_generator("CAA_Auto", fields_config={"fields": {}})
+    data = {
+        "vehicles_information": {
+            "vehicle_1": {
+                "daily_km": "8",
+                "business_km": "",
+                "cylinders": "4",
+            }
+        }
+    }
+    dup = copy.deepcopy(data)
+    _, fixes = generator._fix_vehicle_table_column_misalignment(dup)
+    assert fixes == 0
+    assert dup["vehicles_information"]["vehicle_1"]["daily_km"] == "8"
+
+
+def test_caa_vehicle_table_clears_daily_km_when_same_as_cylinders():
+    generator = _make_generator("CAA_Auto", fields_config={"fields": {}})
+    data = {
+        "vehicles_information": {
+            "vehicle_1": {
+                "daily_km": "4",
+                "cylinders": "4",
+            }
+        }
+    }
+    dup = copy.deepcopy(data)
+    _, fixes = generator._fix_vehicle_table_column_misalignment(dup)
+    assert fixes == 1
+    assert dup["vehicles_information"]["vehicle_1"]["daily_km"] is None
 
 
 def test_get_required_top_level_fields_from_config():

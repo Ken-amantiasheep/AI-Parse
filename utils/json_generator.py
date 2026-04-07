@@ -959,29 +959,12 @@ The overall JSON structure, section names, and nesting MUST follow this example 
     def _build_prompt(self, documents: Dict[str, str]) -> str:
         """Build detailed prompt"""
         prompt = prompt_common.build_prompt_intro(self.company)
-        # Add document content (limit length to avoid too many tokens)
+        # Add document content.
+        # Per user requirement: always include full text for every input file.
+        # Do not truncate any document content.
         for doc_name, content in documents.items():
-            # For CAA, prioritize showing the end of Application PDF where MEMO TEXT DETAILS usually appears
-            if self._is_caa_company() and "application" in doc_name.lower():
-                # Show both beginning and end (where MEMO TEXT DETAILS is)
-                content_length = len(content)
-                if content_length > 16000:
-                    # Show first 4000 and last 12000 characters
-                    content_preview = content[:4000] + "\n\n[... middle section omitted ...]\n\n" + content[-12000:]
-                    prompt += f"\n### {doc_name} Document (showing beginning and END sections where MEMO TEXT DETAILS appears):\n{content_preview}\n"
-                elif content_length > 8000:
-                    # Show first 2000 and last 6000 characters
-                    content_preview = content[:2000] + "\n\n[... middle section omitted ...]\n\n" + content[-6000:]
-                    prompt += f"\n### {doc_name} Document (showing beginning and END sections where MEMO TEXT DETAILS appears):\n{content_preview}\n"
-                else:
-                    content_preview = content
-                    prompt += f"\n### {doc_name} Document:\n{content_preview}\n"
-            else:
-                # If content is too long, only take first 8000 characters
-                content_preview = content[:8000] if len(content) > 8000 else content
-                prompt += f"\n### {doc_name} Document:\n{content_preview}\n"
-                if len(content) > 8000:
-                    prompt += f"[... document truncated, total length: {len(content)} characters ...]\n"
+            content_preview = content
+            prompt += f"\n### {doc_name} Document:\n{content_preview}\n"
         
         prompt += "\n## Output Requirements:\n\n"
         prompt += "Generate a JSON object with the following structure:\n\n"
@@ -1476,12 +1459,11 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         """
         Fix column misalignment issues in vehicle information table.
         Common issue: when daily_km is blank, but a value from cylinders column is incorrectly extracted as daily_km.
-        
-        Detection logic:
-        - If daily_km is a single digit (like "4") and cylinders is also the same value, 
-          it's likely daily_km was incorrectly extracted from cylinders column
-        - If daily_km is a single digit but cylinders is different or missing, 
-          it might still be misaligned (daily_km should rarely be a single digit)
+
+        Detection logic (conservative):
+        - If daily_km is a single digit and equals cylinders, clear daily_km (likely read from wrong column).
+        - Do NOT clear single-digit daily_km otherwise: values like 8 km/day are valid and common when
+          primary_use is Pleasure and business_km is empty.
         """
         if not isinstance(data, dict):
             return data, 0
@@ -1498,7 +1480,6 @@ The overall JSON structure, section names, and nesting MUST follow this example 
             daily_km = vehicle.get("daily_km")
             cylinders = vehicle.get("cylinders")
             business_km = vehicle.get("business_km")
-            annual_km = vehicle.get("annual_km")
             
             # Check if daily_km looks suspicious (single digit that matches cylinders)
             if daily_km is not None and isinstance(daily_km, str):
@@ -1509,13 +1490,6 @@ The overall JSON structure, section names, and nesting MUST follow this example 
                     if cylinders is not None and str(cylinders).strip() == daily_km_clean:
                         print(f"[WARNING] Vehicle '{vehicle_key}': daily_km='{daily_km}' matches cylinders='{cylinders}'. "
                               f"This suggests column misalignment. Clearing daily_km.")
-                        vehicle["daily_km"] = None
-                        corrected += 1
-                    elif business_km is None or (isinstance(business_km, str) and not business_km.strip()):
-                        # If business_km is also empty, daily_km being a single digit is suspicious
-                        # (daily_km should typically be larger numbers or empty)
-                        print(f"[WARNING] Vehicle '{vehicle_key}': daily_km='{daily_km}' is a single digit "
-                              f"and business_km is empty. This suggests possible misalignment. Clearing daily_km.")
                         vehicle["daily_km"] = None
                         corrected += 1
             
@@ -1558,6 +1532,12 @@ The overall JSON structure, section names, and nesting MUST follow this example 
                 for km_field in ("annual_km", "daily_km"):
                     if km_field in vehicle and vehicle[km_field] is None:
                         vehicle[km_field] = ""
+                
+                # km_at_purchase is required for CAA auto output:
+                # if missing/blank/null, force default to numeric 0 instead of null.
+                km_at_purchase = vehicle.get("km_at_purchase")
+                if self._is_missing(km_at_purchase):
+                    vehicle["km_at_purchase"] = 0
 
                 # purchase_price: validate existing value, but allow null for empty/invalid fields
                 # If the field was cleared due to invalid value (e.g., "Private Driveway"), keep it as null

@@ -312,7 +312,7 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract daily kilometers for THIS specific vehicle. Read ONLY the cell directly under the 'Daily km' header - do NOT confuse this with values from adjacent columns like 'Business km'. This field is independent of primary_use and can have a value regardless of what primary_use is set to. Return as string.",
+          "extraction_logic": "Extract daily kilometers for THIS specific vehicle. Read ONLY the cell directly under the 'Daily km' header - do NOT confuse this with values from adjacent columns like 'Business km'. Small numbers (e.g. 8, 10) are normal for daily km; output them as strings. This field is independent of primary_use and can have a value regardless of what primary_use is set to. Return as string.",
           "description": "Daily kilometers (string type)"
         },
         "garaging_location": {
