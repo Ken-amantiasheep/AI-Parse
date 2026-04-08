@@ -1,6 +1,16 @@
-def build_rules(is_caa_company: bool):
-    if is_caa_company:
-        date_rule = "- For CAA, only date_of_birth fields must be MM/DD/YYYY. Do not force-convert other date fields."
+from typing import Optional
+
+
+def build_rules(company: Optional[str]):
+    """Return (date_rule, caa_claim_policy_rule, caa_membership_rule). Company drives CAA Auto vs CAA property vs default."""
+    c = (company or "").upper()
+    is_caa = c == "CAA" or c.startswith("CAA_")
+    is_caa_property = c.endswith("_PROPERTY") or c == "CAA_PROPERTY"
+
+    if is_caa and not is_caa_property:
+        date_rule = """- **CAA Auto — date strings (mandatory, not optional):**
+  - Output **MM/DD/YYYY** for every date field **except** `application_info.effective_date`, which must be **YYYY-MM-DD** only (e.g. `2026-03-01`).
+  - Convert from the document into these exact formats in the JSON; do not leave ISO-only, European, or ambiguous dates."""
         caa_claim_policy_rule = """- For CAA claims, each claims item must include non-empty policy (Claim# / Policy#).
 - Claim policy must be extracted from Autoplus claims section (the claim block that contains Loss Date / Company / Source / Policy).
 - For every individual claim item, copy the Policy value from the same claim block into claim.policy (or claim_number if only Claim# is present).
@@ -20,6 +30,13 @@ def build_rules(is_caa_company: bool):
 - The membership number format is typically digits with optional spaces (e.g., "620 2822 4256 53003" or "6202822425653003").
 - If you find "Group discount apply: yes - CAA" but the membership number seems missing, look more carefully on the same line - it's ALWAYS right there after "| Member #:" on the same line.
 - COMMON MISTAKE: Setting caa_membership to "No" when the pattern exists - DO NOT DO THIS! Always search first before setting to "No"."""
+    elif is_caa_property:
+        date_rule = (
+            "- For CAA property, use the **exact** date format stated on each field line in the schema above "
+            "(do not substitute a global default; match that field's stated format)."
+        )
+        caa_claim_policy_rule = ""
+        caa_membership_rule = ""
     else:
         date_rule = "- All dates must be in YYYY-MM-DD format"
         caa_claim_policy_rule = ""

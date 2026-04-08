@@ -6,7 +6,7 @@ import os
 import sys
 import re
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from anthropic import Anthropic
 import requests
 
@@ -111,6 +111,13 @@ class IntactJSONGenerator:
         company_upper = self.company.upper()
         return company_upper == "CAA" or company_upper.startswith("CAA_")
 
+    def _is_caa_auto_company(self) -> bool:
+        """CAA automobile lines only (excludes CAA_property)."""
+        u = self.company.upper()
+        if u.endswith("_PROPERTY") or u == "CAA_PROPERTY":
+            return False
+        return u == "CAA" or u.startswith("CAA_")
+
     def _is_intact_company(self) -> bool:
         """Check if company is Intact-related (Intact, Intact_Auto, etc.)"""
         company_upper = self.company.upper()
@@ -172,12 +179,13 @@ class IntactJSONGenerator:
                             field_line += f" (select one: {options_str})"
                     
                     if field_mode == "date":
-                        # Check if date format is specified in description or extraction_logic
-                        date_format = "YYYY-MM-DD"  # default
-                        if "DD-MM-YYYY" in field_description or "DD-MM-YYYY" in field_extraction_logic:
-                            date_format = "DD-MM-YYYY"
-                        elif "YYYY-MM" in field_description or "YYYY-MM" in field_extraction_logic:
-                            date_format = "YYYY-MM"
+                        date_format = self._get_configured_date_format(
+                            {
+                                "description": field_description,
+                                "extraction_logic": field_extraction_logic,
+                            },
+                            field_name,
+                        )
                         field_line += f" (format: {date_format})"
                     
                     if not field_required:
@@ -977,7 +985,7 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         fields_section = self._build_fields_prompt_section(self.fields_config)
         prompt += fields_section
         
-        date_rule, caa_claim_policy_rule, caa_membership_rule = prompt_caa_memo.build_rules(self._is_caa_company())
+        date_rule, caa_claim_policy_rule, caa_membership_rule = prompt_caa_memo.build_rules(self.company)
         prompt += prompt_caa_memo.build_critical_extraction_block(
             date_rule=date_rule,
             caa_claim_policy_rule=caa_claim_policy_rule,
@@ -1201,11 +1209,21 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         return json_generator_pure.format_to_yyyymm(date_value)
 
     @staticmethod
-    def _get_configured_date_format(field_info: Dict) -> str:
-        """Infer target date format from field config metadata."""
+    def _get_configured_date_format(field_info: Dict, field_name: Optional[str] = None) -> str:
+        """Infer target date format from field config metadata (per-field; no silent wrong default for CAA effective_date)."""
         if not isinstance(field_info, dict):
             return "YYYY-MM-DD"
-        hints = f"{field_info.get('description', '')} {field_info.get('extraction_logic', '')}".upper()
+        desc = field_info.get("description", "") or ""
+        logic = field_info.get("extraction_logic", "") or ""
+        hints = f"{desc} {logic}".upper()
+
+        if field_name == "effective_date":
+            return "YYYY-MM-DD"
+        if "ONLY DATE FIELD THAT USES YYYY-MM-DD" in logic.upper():
+            return "YYYY-MM-DD"
+        if "ONLY FIELD USING THIS FORMAT" in hints and "YYYY-MM-DD" in desc.upper():
+            return "YYYY-MM-DD"
+
         if "YYYY-MM FORMAT" in hints or "FORMAT: YYYY-MM" in hints:
             return "YYYY-MM"
         if "DD-MM-YYYY" in hints:
@@ -1226,11 +1244,102 @@ The overall JSON structure, section names, and nesting MUST follow this example 
                 for field_name, field_info in fields.items():
                     if isinstance(field_info, dict):
                         if field_info.get("mode") == "date":
-                            field_formats[field_name] = self._get_configured_date_format(field_info)
+                            field_formats[field_name] = self._get_configured_date_format(field_info, field_name)
                         walk(field_info)
 
         walk(self.fields_config)
         return field_formats
+
+    def _normalize_date_scalar(self, value: str, fmt: str) -> str:
+        if not isinstance(value, str):
+            return value
+        if fmt == "MM/DD/YYYY":
+            return self._format_to_mmddyyyy(value)
+        if fmt == "YYYY-MM":
+            return self._format_to_yyyymm(value)
+        if fmt == "DD-MM-YYYY":
+            return self._format_to_ddmmyyyy(value)
+        return self._format_to_yyyymmdd(value)
+
+    def _normalize_dates_in_object_by_template(self, field_map: Dict, obj: Dict) -> int:
+        """
+        Normalize date strings in obj using the schema field_map (handles dynamic-key sections
+        like coverages when the template uses a single ALL_CAPS placeholder key).
+        """
+        changed = 0
+        if not isinstance(field_map, dict) or not isinstance(obj, dict):
+            return 0
+
+        direct_keys = [k for k in field_map if k in obj]
+        if not direct_keys and len(field_map) == 1:
+            sole_key, sole_info = next(iter(field_map.items()))
+            if (
+                isinstance(sole_key, str)
+                and sole_key.isupper()
+                and isinstance(sole_info, dict)
+                and sole_info.get("fields")
+            ):
+                inner_template = sole_info["fields"]
+                for sub_val in obj.values():
+                    if isinstance(sub_val, dict):
+                        changed += self._normalize_dates_in_object_by_template(inner_template, sub_val)
+                return changed
+
+        for fname, finfo in field_map.items():
+            if fname not in obj:
+                continue
+            val = obj[fname]
+            if not isinstance(finfo, dict):
+                continue
+            if finfo.get("mode") == "date" and isinstance(val, str):
+                fmt = self._get_configured_date_format(finfo, fname)
+                normalized = self._normalize_date_scalar(val, fmt)
+                if normalized != val:
+                    obj[fname] = normalized
+                    changed += 1
+            elif (
+                (finfo.get("type") == "array" or finfo.get("always_array"))
+                and isinstance(val, list)
+                and finfo.get("item_fields")
+            ):
+                itf = finfo["item_fields"]
+                for item in val:
+                    if isinstance(item, dict):
+                        changed += self._normalize_dates_in_object_by_template(itf, item)
+            elif finfo.get("fields") and isinstance(val, dict):
+                if finfo.get("type") == "object" and finfo.get("key_format"):
+                    for ent in val.values():
+                        if isinstance(ent, dict):
+                            changed += self._normalize_dates_in_object_by_template(finfo["fields"], ent)
+                else:
+                    changed += self._normalize_dates_in_object_by_template(finfo["fields"], val)
+        return changed
+
+    def _normalize_dates_by_fields_config(self, data: Dict) -> Tuple[Dict, int]:
+        """Force date strings to each field's configured format (CAA Auto / any loaded fields_config)."""
+        if not self._is_caa_auto_company():
+            return data, 0
+        root = self.fields_config.get("fields")
+        if not isinstance(root, dict) or not isinstance(data, dict):
+            return data, 0
+        changed = 0
+        for _section_name, section_cfg in root.items():
+            if not isinstance(section_cfg, dict):
+                continue
+            field_map = section_cfg.get("fields")
+            if not isinstance(field_map, dict):
+                continue
+            payload = data.get(_section_name)
+            if payload is None:
+                continue
+            if section_cfg.get("type") == "object" and section_cfg.get("key_format"):
+                if isinstance(payload, dict):
+                    for entity in payload.values():
+                        if isinstance(entity, dict):
+                            changed += self._normalize_dates_in_object_by_template(field_map, entity)
+            elif isinstance(payload, dict):
+                changed += self._normalize_dates_in_object_by_template(field_map, payload)
+        return data, changed
 
     def _normalize_intact_dates(self, data: Dict):
         """Normalize Intact date fields based on configured per-field target formats."""

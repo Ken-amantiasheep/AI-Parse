@@ -1,5 +1,7 @@
 import copy
 import hashlib
+import json
+import os
 
 from utils.json_generator import IntactJSONGenerator
 from utils import json_generator_pure
@@ -15,6 +17,12 @@ def _make_generator(company: str, fields_config=None):
     generator.fields_config = fields_config or {"fields": {}}
     generator.use_company_schema_validation = False
     return generator
+
+
+def _load_json_config(filename: str) -> dict:
+    root = os.path.join(os.path.dirname(__file__), "..", "config", filename)
+    with open(root, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def test_import_intact_json_generator():
@@ -166,6 +174,28 @@ def test_validate_and_clean_json_for_caa_normalizes_birth_dates():
     assert cleaned["drivers_information"]["driver_1"]["date_of_birth"] == "02/01/1988"
 
 
+def test_validate_and_clean_json_for_caa_normalizes_effective_and_claim_dates():
+    generator = _make_generator("CAA_Auto", fields_config=_load_json_config("caa_auto_fields_config.json"))
+    data = {
+        "applicant_information": {},
+        "drivers_information": {
+            "JOHN DOE": {
+                "claims": [
+                    {"date": "2019-06-15", "policy": "P1"},
+                ],
+            },
+        },
+        "vehicles_information": {},
+        "application_info": {"effective_date": "03/01/2026"},
+        "address": {},
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert cleaned["application_info"]["effective_date"] == "2026-03-01"
+    assert cleaned["drivers_information"]["JOHN DOE"]["claims"][0]["date"] == "06/15/2019"
+
+
 def test_validate_and_clean_json_for_caa_defaults_km_at_purchase_to_zero():
     generator = _make_generator("CAA_Auto")
     data = {
@@ -232,6 +262,10 @@ def test_company_postprocess_pipeline_order():
         def _is_intact_company(self):
             return True
 
+        def _normalize_dates_by_fields_config(self, data):
+            self.calls.append("caa_cfg_dates")
+            return data, 0
+
         def _normalize_caa_birth_dates(self, data):
             self.calls.append("caa_dob")
             data["a"] = 1
@@ -278,6 +312,7 @@ def test_company_postprocess_pipeline_order():
     assert out["b"] == 2
     assert out["c"] == 3
     assert dummy.calls == [
+        "caa_cfg_dates",
         "caa_dob",
         "caa_purchase",
         "caa_vehicle",
