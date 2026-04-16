@@ -21,6 +21,7 @@ $backupCurrentDir = Join-Path $TargetRoot ("current_backup_deploy_{0}" -f (Get-D
 $opsLogPath = Join-Path $logsDir "release_ops.log"
 $fromVersion = ""
 $rootInstallerPath = Join-Path $TargetRoot "install_client.bat"
+$releaseDirCreated = $false
 
 function Write-ReleaseOpsLog {
     param(
@@ -78,10 +79,12 @@ if (Test-Path $releaseDir) {
 New-Item -Path (Join-Path $TargetRoot "releases") -ItemType Directory -Force | Out-Null
 New-Item -Path $logsDir -ItemType Directory -Force | Out-Null
 New-Item -Path (Join-Path $TargetRoot "output") -ItemType Directory -Force | Out-Null
-New-Item -Path $releaseDir -ItemType Directory -Force | Out-Null
 
 $manifest = Read-ReleaseManifest -TargetRoot $TargetRoot
 $fromVersion = [string]$manifest.currentVersion
+
+New-Item -Path $releaseDir -ItemType Directory -Force | Out-Null
+$releaseDirCreated = $true
 
 $include = @(
     "config",
@@ -160,6 +163,9 @@ try {
     }
     if (Test-Path $backupCurrentDir) {
         Move-Item -Path $backupCurrentDir -Destination $currentDir -Force
+    }
+    if ($releaseDirCreated -and (Test-Path $releaseDir)) {
+        Remove-Item -Path $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     $manifest = Read-ReleaseManifest -TargetRoot $TargetRoot

@@ -10,13 +10,50 @@ function Get-ManifestPath {
 }
 
 function New-DefaultManifest {
-    return [ordered]@{
+    return @{
         manifestVersion = 1
         currentVersion  = ""
         updatedAt       = ""
         releases        = @()
         history         = @()
     }
+}
+
+function ConvertTo-HashtableDeep {
+    param(
+        [Parameter(Mandatory = $true)]
+        $InputObject
+    )
+
+    if ($null -eq $InputObject) {
+        return $null
+    }
+
+    if ($InputObject -is [System.Collections.IDictionary]) {
+        $result = @{}
+        foreach ($key in $InputObject.Keys) {
+            $result[$key] = ConvertTo-HashtableDeep -InputObject $InputObject[$key]
+        }
+        return $result
+    }
+
+    if ($InputObject -is [System.Collections.IEnumerable] -and -not ($InputObject -is [string])) {
+        $list = @()
+        foreach ($item in $InputObject) {
+            $list += ,(ConvertTo-HashtableDeep -InputObject $item)
+        }
+        return $list
+    }
+
+    if ($InputObject -is [pscustomobject]) {
+        $result = @{}
+        foreach ($prop in $InputObject.PSObject.Properties) {
+            $result[$prop.Name] = ConvertTo-HashtableDeep -InputObject $prop.Value
+        }
+        return $result
+    }
+
+    return $InputObject
 }
 
 function Read-ReleaseManifest {
@@ -35,14 +72,15 @@ function Read-ReleaseManifest {
         return New-DefaultManifest
     }
 
-    $parsed = $raw | ConvertFrom-Json -AsHashtable
-    if (-not $parsed.ContainsKey("releases")) {
+    $parsedRaw = $raw | ConvertFrom-Json
+    $parsed = ConvertTo-HashtableDeep -InputObject $parsedRaw
+    if (-not $parsed.Contains("releases")) {
         $parsed.releases = @()
     }
-    if (-not $parsed.ContainsKey("history")) {
+    if (-not $parsed.Contains("history")) {
         $parsed.history = @()
     }
-    if (-not $parsed.ContainsKey("manifestVersion")) {
+    if (-not $parsed.Contains("manifestVersion")) {
         $parsed.manifestVersion = 1
     }
     return $parsed
@@ -81,7 +119,7 @@ function Add-OrUpdateReleaseRecord {
     }
 
     if ($null -eq $existing) {
-        $existing = [ordered]@{
+        $existing = @{
             version     = $Version
             path        = "releases/$Version"
             publishedAt = (Get-Date).ToString("o")
@@ -131,7 +169,7 @@ function Add-ReleaseHistory {
         [bool]$Success = $true
     )
 
-    $entry = [ordered]@{
+    $entry = @{
         action      = $Action
         fromVersion = $FromVersion
         toVersion   = $ToVersion
