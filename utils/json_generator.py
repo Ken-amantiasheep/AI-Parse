@@ -1437,6 +1437,8 @@ The overall JSON structure, section names, and nesting MUST follow this example 
 
                 if driver.get("lapse_in_insurance") != "Yes":
                     driver.pop("lapse_in_insurance_description", None)
+                    driver.pop("lapse_start", None)
+                    driver.pop("lapse_end", None)
 
                 licence_class = driver.get("licence_class")
                 if licence_class == "G1":
@@ -1498,8 +1500,9 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         Validate and fix obvious errors in purchase-related fields:
         1. Clear non-price text from price fields (e.g., "Private Driveway" in purchase_price)
         2. Ensure empty fields are null
-        3. Handle special case: if purchase_condition is New, km_at_purchase is implausibly high (>=5000),
-           and list_price_new is missing, move km_at_purchase -> list_price_new.
+        3. If km_at_purchase and list_price_new normalize to the same positive number, treat as
+           purchase-table column misalignment (blank km cell + list price duplicated into km) and
+           clear km_at_purchase to null.
         """
         if not isinstance(data, dict):
             return data, 0
@@ -1543,6 +1546,26 @@ The overall JSON structure, section names, and nesting MUST follow this example 
                 vehicle["km_at_purchase"] = None
                 corrected += 1
 
+            km_value = vehicle.get("km_at_purchase")
+            list_price = vehicle.get("list_price_new")
+            km_digits = (
+                self._extract_digits_as_int(str(km_value).strip())
+                if km_value is not None and not self._is_missing(km_value)
+                else None
+            )
+            lp_digits = (
+                self._extract_digits_as_int(str(list_price).strip())
+                if list_price is not None and not self._is_missing(list_price)
+                else None
+            )
+            if km_digits is not None and lp_digits is not None and km_digits == lp_digits:
+                print(
+                    f"[INFO] Vehicle '{vehicle_key}': km_at_purchase and list_price_new both "
+                    f"'{km_digits}' — likely shifted columns; clearing km_at_purchase."
+                )
+                vehicle["km_at_purchase"] = None
+                corrected += 1
+
             # Swap logic: if list_price_new is null, purchase_price is null (after validation), and km_at_purchase has a value, swap them
             km_value = vehicle.get("km_at_purchase")
             list_price = vehicle.get("list_price_new")
@@ -1558,9 +1581,6 @@ The overall JSON structure, section names, and nesting MUST follow this example 
                         vehicle["list_price_new"] = km_value
                         vehicle["km_at_purchase"] = None
                         corrected += 1
-
-            # Note: We do NOT auto-fix column misalignment here - the model should extract correctly from the start
-            # Only validate and clear obviously invalid values (non-price text in price fields)
 
         return data, corrected
     
@@ -1988,6 +2008,10 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         patterns = [
             r"(?:claim#|claim no\.?|claim number)\s*[:#]?\s*([A-Za-z0-9\-_/]+)",
             r"(?:policy#|policy no\.?|policy number)\s*[:#]?\s*([A-Za-z0-9\-_/]+)",
+            # AutoPlus commonly uses "Policy: 01884845" (without #).
+            r"(?:policy)\s*[:#]\s*([A-Za-z0-9\-_/]+)",
+            # Common OCR / extraction typos for "policy".
+            r"(?:polciy|poilcy)\s*[:#]\s*([A-Za-z0-9\-_/]+)",
             r"(?:claim#/policy#)\s*[:#]?\s*([A-Za-z0-9\-_/]+)",
         ]
         for pattern in patterns:
@@ -2017,6 +2041,34 @@ The overall JSON structure, section names, and nesting MUST follow this example 
             if value is None:
                 continue
             value_str = str(value).strip()
+            if value_str:
+                return value_str
+
+        # Tolerant key matching for variants like:
+        # "Policy", "Policy:", "Policy #", "polciy", "claim no", etc.
+        normalized_lookup = {}
+        for key, value in claim.items():
+            if value is None:
+                continue
+            key_norm = re.sub(r"[^a-z0-9]", "", str(key).lower())
+            if key_norm:
+                normalized_lookup[key_norm] = value
+
+        normalized_candidate_keys = [
+            "policy",
+            "policynumber",
+            "policyno",
+            "policyid",
+            "polciy",      # common typo
+            "poilcy",      # common typo
+            "claimnumber",
+            "claimno",
+            "claimpolicy",
+        ]
+        for key_norm in normalized_candidate_keys:
+            if key_norm not in normalized_lookup:
+                continue
+            value_str = str(normalized_lookup[key_norm]).strip()
             if value_str:
                 return value_str
 

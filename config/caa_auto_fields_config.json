@@ -194,7 +194,7 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract co-applicant's first name from Quote PDF or Application PDF. Convert to uppercase. If no co-applicant found, return null.",
+          "extraction_logic": "Extract co-applicant's first name from Quote PDF or Application PDF. Convert to uppercase. If no co-applicant found, return null. If First Name/Last Name labels are unclear or missing, use cross-document consistency: compare repeated full-name occurrences and align with driver_list/drivers_information naming (driver keys use 'FIRST LAST'). Keep this person's first_name/last_name order consistent across sections.",
           "description": "First name"
         },
         "middle_name": {
@@ -208,7 +208,7 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "Extract co-applicant's last name from Quote PDF or Application PDF. Convert to uppercase. If no co-applicant found, return null.",
+          "extraction_logic": "Extract co-applicant's last name from Quote PDF or Application PDF. Convert to uppercase. If no co-applicant found, return null. If First Name/Last Name labels are unclear or missing, use cross-document consistency: compare repeated full-name occurrences and align with driver_list/drivers_information naming (driver keys use 'FIRST LAST'). Keep this person's first_name/last_name order consistent across sections.",
           "description": "Last name"
         },
         "suffix": {

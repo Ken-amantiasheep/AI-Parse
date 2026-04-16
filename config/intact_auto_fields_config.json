@@ -382,11 +382,25 @@
           "description": "Description of the insurance lapse for THIS specific driver",
           "options": ["No Automobile", "Non-Payment", "Resulting from Conviction - Rateable"]
         },
+        "lapse_start": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Only extract when 'lapse_in_insurance' is 'Yes'. Map from the Lapses section Date field for THIS specific driver.",
+          "description": "Lapse start date in YYYY-MM-DD format for THIS specific driver"
+        },
+        "lapse_end": {
+          "type": "string",
+          "mode": "date",
+          "required": false,
+          "extraction_logic": "Only extract when 'lapse_in_insurance' is 'Yes'. Map from the Lapses section Re-Instate Date field for THIS specific driver.",
+          "description": "Lapse end date in YYYY-MM-DD format for THIS specific driver"
+        },
         "insured_without_interruption_since": {
           "type": "string",
           "mode": "date",
           "required": true,
-          "description": "Insured Without Interruption Since in YYYY-MM format for THIS specific driver"
+          "description": "Insured Without Interruption Since in YYYY-MM-DD format for THIS specific driver"
         },
         "risk_type": {
           "type": "string",
@@ -429,8 +443,64 @@
     },
     "assignment": {
       "required": true,
-      "description": "Assignment information",
+      "description": "Assignment information. Includes per-vehicle driver usage (vehicle_1, vehicle_2, ...) aligned with quote 'Vehicle N of M' blocks and their Drivers lists, plus vehicle use and mileage fields.",
       "fields": {
+        "vehicle_1": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "For the FIRST vehicle on the quote (e.g. 'Vehicle 1 of M'), output an object whose keys are driver_1, driver_2, driver_3, ... in the SAME order as drivers listed under THAT vehicle's Drivers section. Each driver_k MUST be an object with: (1) name: string — full name as printed (e.g. 'Ai Wang'); strip trailing role tags like '(Prn)' / '(Occ)' from the name value if they appear only as labels. (2) percentage_of_use: integer 0–100. DEFAULT (covers most quotes): the quote usually only indicates WHO is Principal vs Occasional via labels like (Prn) and (Occ), NOT numeric percentages — in that case you MUST fill percentage_of_use using ONLY these FIXED rules by driver count N on THIS vehicle: N=1 → 100 for the sole driver. N=2 → Prn 60, Occ 40. N=3 → Prn 60, each Occ 20. N=4 → Prn 70, each Occ 10. N=5 → Prn 60, each Occ 10. Match each value to the correct person by (Prn)/(Occ), not by list position alone. EXCEPTION (rare): if the quote explicitly prints a numeric 'Percentage of Use (%)' (or equivalent) per driver, use those printed values instead of the fixed rules. If N>5: use printed percentages when present; otherwise Prn 60 and split remaining 40 equally among Occ drivers (integers summing to 100). Omit vehicle_1 entirely only if the quote provides no per-vehicle driver listing for vehicle 1.",
+          "description": "Vehicle 1 driver usage: nested driver_1, driver_2, ... each with name and percentage_of_use (0-100); default % grid by Prn/Occ count per rules in extraction_logic."
+        },
+        "vehicle_2": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Same structure and rules as vehicle_1, but for the SECOND vehicle on the quote ('Vehicle 2 of M'). Omit if there is no second vehicle.",
+          "description": "Vehicle 2 driver usage (same shape as vehicle_1)."
+        },
+        "vehicle_3": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Same as vehicle_1 for the third vehicle. Omit if fewer than three vehicles.",
+          "description": "Vehicle 3 driver usage (same shape as vehicle_1)."
+        },
+        "vehicle_4": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Same as vehicle_1 for the fourth vehicle. Omit if fewer than four vehicles.",
+          "description": "Vehicle 4 driver usage (same shape as vehicle_1)."
+        },
+        "vehicle_5": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Same as vehicle_1 for the fifth vehicle. Omit if fewer than five vehicles.",
+          "description": "Vehicle 5 driver usage (same shape as vehicle_1)."
+        },
+        "vehicle_6": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Same as vehicle_1 for the sixth vehicle. Omit if fewer than six vehicles.",
+          "description": "Vehicle 6 driver usage (same shape as vehicle_1)."
+        },
+        "vehicle_7": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Same as vehicle_1 for the seventh vehicle. Omit if fewer than seven vehicles.",
+          "description": "Vehicle 7 driver usage (same shape as vehicle_1)."
+        },
+        "vehicle_8": {
+          "type": "object",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Same as vehicle_1 for the eighth vehicle. Omit if fewer than eight vehicles.",
+          "description": "Vehicle 8 driver usage (same shape as vehicle_1)."
+        },
         "type_of_use": {
           "type": "string",
           "mode": "dropdown",
@@ -542,6 +612,13 @@
           "required": true,
           "extraction_logic": "Only extract if has_claim is 'Yes'. Extract the vehicle information for EACH claim found (e.g., vehicle description, VIN, or vehicle identifier). Output as an array of strings, where each element corresponds to one claim. The array length should match the number of claims found.",
           "description": "The vehicle that this claim is assigned to (array - one element per claim)"
+        },
+        "assigned_driver": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Only extract if has_claim is 'Yes'. Extract the driver information for EACH claim found (e.g., driver full name or clear driver identifier). Output as an array of strings, where each element corresponds to one claim. The array length should match the number of claims found and should align by index with date_of_loss/at_fault/cause_of_loss/total_amount_paid/coverage/assigned_vehicle.",
+          "description": "The driver that this claim is assigned to (array - one element per claim)"
         }
       }
     },

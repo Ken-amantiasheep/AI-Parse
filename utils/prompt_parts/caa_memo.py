@@ -165,6 +165,10 @@ Before extracting any fields, you MUST perform these checks:
 {date_rule}
 {caa_claim_policy_rule}
 {caa_membership_rule}
+- **Name order consistency rule (CAA Auto):**
+  - For any person appearing in both `coapplicant_information` and `driver_list`/`drivers_information`, `first_name` and `last_name` must stay consistent across sections.
+  - If explicit labels (First Name / Last Name) are missing or unclear, infer order from repeated full-name evidence in documents and from driver keys (format is `FIRST LAST`).
+  - Do NOT flip name order arbitrarily. Prefer the ordering supported by the majority of document occurrences and cross-section consistency.
 - Use null (NOT empty string, NOT other values) for missing or blank information
 - Driver and vehicle keys must use numeric suffixes (driver_1, vehicle_1, etc.)
 - Extract convictions from MVR documents with date and description
@@ -212,7 +216,7 @@ For EACH field (km_at_purchase, list_price_new, purchase_price, etc.):
 **THE MOST COMMON MISTAKE TO AVOID:**
 
 ❌ **WRONG**: Reading left-to-right: "I see Used, then 03/05/2013, then 29705, so km_at_purchase = 29705"
-✅ **CORRECT**: Finding header "km at Purchase", looking directly below it, seeing it's blank, so km_at_purchase = 0
+✅ **CORRECT**: Finding header "km at Purchase", looking directly below it, seeing it's blank, so km_at_purchase = null
 
 **CONCRETE EXAMPLE - THIS IS WHAT YOU WILL SEE:**
 
@@ -229,7 +233,7 @@ Row 2 (headers):   Purchase Purchase     km at   List    Purchase Winter Parking
    - Find header: "km at Purchase"
    - Look directly below "km at Purchase" header
    - See: BLANK/EMPTY cell
-   - Result: `km_at_purchase = 0` ✅ (required field: if blank, must use 0, never null)
+   - Result: `km_at_purchase = null` ✅ (column blank → null; never copy the value from "List Price New")
 
 2. For `list_price_new`:
    - Find header: "List Price New"
@@ -368,10 +372,10 @@ Example format:
 
 **FOR PURCHASE TABLE FIELDS (km_at_purchase, list_price_new, purchase_price):**
 - Each field reads from its OWN column header ONLY
-- `km_at_purchase` is required: if its column is blank, output `0` (never null)
+- `km_at_purchase`: if its column is blank, output `null` — never fill with a neighbor column's number
 - For other purchase fields, if a column is blank, that field = null (DO NOT borrow from next column!)
 - "29705" under "List Price New" header → list_price_new = "29705"
-- "29705" NOT under "km at Purchase" header → km_at_purchase = 0 (even if you see "29705" nearby!)
+- "29705" NOT under "km at Purchase" header → km_at_purchase = null (even if you see "29705" nearby!)
 
 **DO NOT READ LEFT-TO-RIGHT! MATCH BY HEADER NAME!**
 

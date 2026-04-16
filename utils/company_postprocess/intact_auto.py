@@ -201,6 +201,16 @@ def _has_conviction_detail(convictions_value) -> bool:
     return bool(str(convictions_value).strip())
 
 
+def _to_full_date(generator, value) -> Optional[str]:
+    """Normalize to YYYY-MM-DD for Intact fields; pad YYYY-MM with day 01."""
+    if _is_missing(value):
+        return None
+    normalized = generator._format_to_yyyymmdd(value)
+    if isinstance(normalized, str) and re.match(r"^\d{4}-\d{2}$", normalized):
+        return f"{normalized}-01"
+    return normalized if isinstance(normalized, str) else None
+
+
 def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, str]]) -> Dict:
     if not isinstance(data, dict):
         return data
@@ -238,8 +248,23 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
                 and _is_no_insurance_record(driver)
                 and not _is_missing(effective_date)
             ):
-                driver["insured_without_interruption_since"] = generator._format_to_yyyymm(effective_date)
+                driver["insured_without_interruption_since"] = _to_full_date(generator, effective_date)
                 print("[INFO] Filled insured_without_interruption_since from policy_effective_date for no-insurance-record driver")
+
+            insured_since = _to_full_date(generator, driver.get("insured_without_interruption_since"))
+            if insured_since is not None:
+                driver["insured_without_interruption_since"] = insured_since
+
+            lapse_desc = driver.get("lapse_in_insurance_description")
+            if (
+                driver.get("lapse_in_insurance") == "Yes"
+                and isinstance(lapse_desc, str)
+                and lapse_desc.strip().lower() == "no automobile"
+                and _is_missing(driver.get("expiry_date"))
+                and not _is_missing(effective_date)
+            ):
+                driver["expiry_date"] = _to_full_date(generator, effective_date)
+                print("[INFO] Filled expiry_date for No Automobile lapse using policy_effective_date")
 
     risks = data.get("risk")
     if isinstance(risks, list):

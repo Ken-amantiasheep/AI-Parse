@@ -50,7 +50,9 @@ def test_validate_and_clean_json_for_intact_dates_and_membership_cleanup():
                         "mode": "date",
                         "description": "Insurance History Report Request Date in DD-MM-YYYY format",
                     },
-                    "insured_without_interruption_since": {"mode": "date", "description": "Insured Without Interruption Since in YYYY-MM format"},
+                    "insured_without_interruption_since": {"mode": "date", "description": "Insured Without Interruption Since in YYYY-MM-DD format"},
+                    "lapse_start": {"mode": "date", "description": "Lapse start date in YYYY-MM-DD format"},
+                    "lapse_end": {"mode": "date", "description": "Lapse end date in YYYY-MM-DD format"},
                     "expiry_date": {"mode": "date", "description": "Expiry date in DD-MM-YYYY format"},
                 }
             },
@@ -83,6 +85,8 @@ def test_validate_and_clean_json_for_intact_dates_and_membership_cleanup():
                 "expiry_date": "2026-06-24",
                 "lapse_in_insurance": "No",
                 "lapse_in_insurance_description": "Non-Payment",
+                "lapse_start": "2024-10-18",
+                "lapse_end": "2026-04-09",
             },
         ],
         "claim": {
@@ -104,9 +108,11 @@ def test_validate_and_clean_json_for_intact_dates_and_membership_cleanup():
     assert cleaned["driver"][0]["MVR_request_date_time"] == "14-03-2026"
     assert "request_date_time" not in cleaned["driver"][0]
     assert cleaned["driver"][0]["insurance_history_report_request_date"] == "14-03-2026"
-    assert cleaned["driver"][0]["insured_without_interruption_since"] == "2017-06"
+    assert cleaned["driver"][0]["insured_without_interruption_since"] == "2017-06-24"
     assert cleaned["driver"][0]["expiry_date"] == "24-06-2026"
     assert "lapse_in_insurance_description" not in cleaned["driver"][0]
+    assert "lapse_start" not in cleaned["driver"][0]
+    assert "lapse_end" not in cleaned["driver"][0]
     assert cleaned["claim"] == {"has_claim": "No"}
     assert cleaned["interest"] == {"has_loan": "No"}
     assert cleaned["application_info"] == {}
@@ -124,7 +130,7 @@ def test_validate_and_clean_json_for_intact_fills_broker_and_insured_since_defau
                 "fields": {
                     "insured_without_interruption_since": {
                         "mode": "date",
-                        "description": "Insured Without Interruption Since in YYYY-MM format",
+                        "description": "Insured Without Interruption Since in YYYY-MM-DD format",
                     },
                 }
             },
@@ -153,7 +159,37 @@ def test_validate_and_clean_json_for_intact_fills_broker_and_insured_since_defau
     cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
 
     assert cleaned["broker_information"]["broker_number"] == "40501"
-    assert cleaned["driver"][0]["insured_without_interruption_since"] == "2026-03"
+    assert cleaned["driver"][0]["insured_without_interruption_since"] == "2026-03-19"
+
+
+def test_validate_and_clean_json_for_intact_keeps_lapse_start_end_when_lapse_yes():
+    fields_config = {
+        "fields": {
+            "driver": {
+                "fields": {
+                    "lapse_start": {"mode": "date", "description": "Lapse start date in YYYY-MM-DD format"},
+                    "lapse_end": {"mode": "date", "description": "Lapse end date in YYYY-MM-DD format"},
+                }
+            }
+        }
+    }
+    generator = _make_generator("Intact_Auto", fields_config=fields_config)
+    data = {
+        "driver": [
+            {
+                "lapse_in_insurance": "Yes",
+                "lapse_in_insurance_description": "No Automobile",
+                "lapse_start": "10/18/2024",
+                "lapse_end": "04/09/2026",
+            }
+        ],
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert cleaned["driver"][0]["lapse_start"] == "2024-10-18"
+    assert cleaned["driver"][0]["lapse_end"] == "2026-04-09"
+    assert cleaned["driver"][0]["lapse_in_insurance_description"] == "No Automobile"
 
 
 def test_validate_and_clean_json_for_caa_normalizes_birth_dates():
@@ -215,6 +251,44 @@ def test_validate_and_clean_json_for_caa_defaults_km_at_purchase_to_zero():
 
     assert cleaned["vehicles_information"]["vehicle_1"]["km_at_purchase"] == 0
     assert cleaned["vehicles_information"]["vehicle_2"]["km_at_purchase"] == 0
+
+
+def test_apply_caa_vehicle_purchase_sanity_clears_km_when_duplicate_of_list_price():
+    generator = _make_generator("CAA_Auto")
+    data = {
+        "vehicles_information": {
+            "vehicle_1": {
+                "km_at_purchase": "68984",
+                "list_price_new": "68984",
+            },
+        },
+    }
+    _, fixes = generator._apply_caa_vehicle_purchase_sanity(data)
+    assert fixes == 1
+    v = data["vehicles_information"]["vehicle_1"]
+    assert v["km_at_purchase"] is None
+    assert v["list_price_new"] == "68984"
+
+
+def test_validate_and_clean_json_for_caa_duplicate_km_list_price_becomes_zero_after_normalization():
+    generator = _make_generator("CAA_Auto")
+    data = {
+        "applicant_information": {},
+        "drivers_information": {},
+        "application_info": {},
+        "address": {},
+        "vehicles_information": {
+            "vehicle_1": {
+                "purchase_condition": "New",
+                "km_at_purchase": "68984",
+                "list_price_new": "68984",
+            },
+        },
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+    v = cleaned["vehicles_information"]["vehicle_1"]
+    assert v["list_price_new"] == "68984"
+    assert v["km_at_purchase"] == 0
 
 
 def test_validate_and_clean_json_for_property_keeps_structure_without_error():
@@ -475,6 +549,86 @@ def test_caa_vehicle_table_clears_daily_km_when_same_as_cylinders():
     _, fixes = generator._fix_vehicle_table_column_misalignment(dup)
     assert fixes == 1
     assert dup["vehicles_information"]["vehicle_1"]["daily_km"] is None
+
+
+def test_caa_coapplicant_name_order_swaps_when_labeled_document_evidence_conflicts():
+    generator = _make_generator("CAA_Auto", fields_config={"fields": {}})
+    data = {
+        "applicant_information": {},
+        "drivers_information": {},
+        "application_info": {},
+        "address": {},
+        "vehicles_information": {},
+        "coapplicant_information": {
+            "first_name": "RAJVINDER",
+            "last_name": "KAUR",
+        },
+    }
+    documents = {
+        "Application": "Co-Applicant First Name: KAUR   Last Name: RAJVINDER",
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["coapplicant_information"]["first_name"] == "KAUR"
+    assert cleaned["coapplicant_information"]["last_name"] == "RAJVINDER"
+
+
+def test_caa_coapplicant_name_order_keeps_current_when_labels_match_current_mapping():
+    generator = _make_generator("CAA_Auto", fields_config={"fields": {}})
+    data = {
+        "applicant_information": {},
+        "drivers_information": {},
+        "application_info": {},
+        "address": {},
+        "vehicles_information": {},
+        "coapplicant_information": {
+            "first_name": "RAJVINDER",
+            "last_name": "KAUR",
+        },
+    }
+    documents = {
+        "Application": "Co-Applicant First Name: RAJVINDER   Last Name: KAUR",
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["coapplicant_information"]["first_name"] == "RAJVINDER"
+    assert cleaned["coapplicant_information"]["last_name"] == "KAUR"
+
+
+def test_caa_coapplicant_name_order_swaps_by_fullname_frequency_when_no_labels():
+    generator = _make_generator("CAA_Auto", fields_config={"fields": {}})
+    data = {
+        "applicant_information": {},
+        "drivers_information": {
+            "RAJVINDER KAUR": {
+                "first_name": "RAJVINDER",
+                "last_name": "KAUR",
+            },
+        },
+        "driver_list": ["RAJVINDER KAUR"],
+        "application_info": {},
+        "address": {},
+        "vehicles_information": {
+            "V1": {"drivers": ["RAJVINDER KAUR (Occ)"]},
+        },
+        "coapplicant_information": {
+            "first_name": "RAJVINDER",
+            "last_name": "KAUR",
+        },
+    }
+    documents = {
+        "Quote": "Insured: KAUR RAJVINDER; Driver: KAUR RAJVINDER; Additional: KAUR RAJVINDER",
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["coapplicant_information"]["first_name"] == "KAUR"
+    assert cleaned["coapplicant_information"]["last_name"] == "RAJVINDER"
+    assert cleaned["driver_list"] == ["KAUR RAJVINDER"]
+    assert "KAUR RAJVINDER" in cleaned["drivers_information"]
+    assert cleaned["vehicles_information"]["V1"]["drivers"] == ["KAUR RAJVINDER (Occ)"]
 
 
 def test_get_required_top_level_fields_from_config():
