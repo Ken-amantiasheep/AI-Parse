@@ -19,8 +19,14 @@ if not exist "%SOURCE_DIR%" (
     exit /b 1
 )
 
-set /p INSTALL_DIR=Choose install folder (Enter for default): 
+set "INSTALL_DIR="
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description='Choose installation folder'; $d.SelectedPath=[System.IO.Path]::Combine([Environment]::GetFolderPath('LocalApplicationData'),'AI-parse'); if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){ Write-Output $d.SelectedPath }"`) do set "INSTALL_DIR=%%I"
+if not defined INSTALL_DIR set /p INSTALL_DIR=Choose install folder (Enter for default): 
 if "%INSTALL_DIR%"=="" set "INSTALL_DIR=%DEFAULT_INSTALL_DIR%"
+
+if /I not "%INSTALL_DIR:~-8%"=="AI-parse" (
+    set "INSTALL_DIR=%INSTALL_DIR%\AI-parse"
+)
 
 echo.
 echo Install to:
@@ -33,7 +39,9 @@ if /I "%CREATE_SHORTCUT%"=="n" (
 )
 
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%" >nul 2>nul
-robocopy "%SOURCE_DIR%" "%INSTALL_DIR%" /MIR /R:2 /W:1 /XD logs output __pycache__ .git >nul
+echo.
+echo Copying files... please wait.
+robocopy "%SOURCE_DIR%" "%INSTALL_DIR%" /MIR /R:2 /W:1 /XD logs output __pycache__ .git
 if errorlevel 8 (
     echo [ERROR] File copy failed.
     pause

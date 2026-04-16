@@ -1,7 +1,7 @@
 {
   "appName": "AI-parse",
   "appFolder": "AI_parse",
-  "version": "9.9.9",
-  "builtAt": "2026-04-16T11:14:48.646885",
+  "version": "1.0.6",
+  "builtAt": "2026-04-16T12:14:42.871200",
   "launcher": "start_gui.bat"
 }
