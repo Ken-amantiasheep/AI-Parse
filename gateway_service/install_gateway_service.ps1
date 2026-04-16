@@ -1,6 +1,6 @@
 param(
     [string]$ServiceName = "AIParseGateway",
-    [string]$AppRoot = "S:\Uploading Team\current",
+    [string]$AppRoot = "S:\Uploading Team\AI-parse\current",
     [string]$PythonExe = "python",
     [string]$Host = "0.0.0.0",
     [string]$Port = "8080"

@@ -1,15 +1,37 @@
-# S 盘共享部署指南
+# S 盘部署与本地更新指南
 
-## 1. 目录结构
+## 1. 目录结构（S 盘）
 
-在 `S:\Uploading Team` 保持以下结构：
+在 `S:\Uploading Team\AI-parse` 保持以下结构：
 
-- `current\` 当前运行版本（Junction）
-- `releases\vX.Y.Z\` 版本目录
-- `logs\` 网关与客户端日志
-- `output\` 输出文件（建议按用户或日期分子目录）
+- `current\` 当前线上版本（Junction 或同步目录）
+- `releases\vX.Y.Z\` 每次发布的完整版本目录
+- `release_manifest.json` 版本元数据（当前版本、发布历史、回滚历史）
+- `logs\` 运行日志与发布操作日志（`release_ops.log`）
+- `output\` 业务输出
 
-## 2. 网关服务部署（同机）
+`release_manifest.json` 由发布/回滚脚本自动维护，不建议手工修改。
+
+## 2. 同事端使用方式（改造后）
+
+同事不再直接从 S 盘运行程序。  
+统一安装到本机后运行 `start_ai_parse.bat`（或桌面快捷方式），启动器会：
+
+1. 读取本地安装版本
+2. 读取 `S:\Uploading Team\AI-parse\release_manifest.json`
+3. 检测到新版本时弹窗询问是否更新
+4. 用户同意后执行整包覆盖更新（先本地备份，再替换）
+5. 启动本地 `app\current\start_gui.bat`
+
+首次安装脚本：
+
+```powershell
+S:\Uploading Team\AI-parse\install_client.bat
+```
+
+该文件会在每次发布/回滚后自动刷新，始终指向 `current\scripts\client\install_client.ps1`。
+
+## 3. 网关服务部署（同机）
 
 1. 在服务器环境变量中设置：
    - `ANTHROPIC_API_KEY`
@@ -24,33 +46,54 @@
 5. 服务化（NSSM）：
    - 运行 `gateway_service\install_gateway_service.ps1`
 
-## 3. 发布新版本
+## 4. 开发端发布新版本
 
-在代码仓库目录执行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\deploy_to_s_drive.ps1 -Version v1.0.0
-```
-
-该命令会：
-
-- 拷贝程序到 `S:\Uploading Team\releases\v1.0.0`
-- 更新 `S:\Uploading Team\current` 指向新版本
-
-## 4. 回滚版本
+### 4.1 命令行方式
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\switch_release.ps1 -Version v0.9.5
+powershell -ExecutionPolicy Bypass -File scripts\deploy_to_s_drive.ps1 `
+  -Version v1.2.0 `
+  -Operator "Ken.Zhang" `
+  -Notes "new parsing rules"
 ```
 
-## 5. 客户端启动
+发布脚本会自动：
 
-用户统一从：
+- 拷贝程序到 `releases\v1.2.0`
+- 更新 `current`
+- 写入 `release_manifest.json`
+- 记录发布日志到 `logs\release_ops.log`
+- 发布失败时恢复原 `current`
 
-- `S:\Uploading Team\current\start_gui.bat`
+### 4.2 GUI 方式（推荐）
 
-启动前会自动执行 `preflight_check.py`：
+运行：
 
-- 输出目录可写
-- 日志目录可写
-- 网关健康可达（gateway 模式）
+```bat
+scripts\release_manager.bat
+```
+
+在界面中可以查看当前版本、发布新版本、查看历史并回滚。
+
+## 5. 回滚版本
+
+### 5.1 命令行方式
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\switch_release.ps1 `
+  -Version v1.1.0 `
+  -Operator "Ken.Zhang" `
+  -Reason "urgent rollback"
+```
+
+回滚脚本会自动：
+
+- 校验目标版本完整性（关键文件存在）
+- 切换 `current` 到目标版本
+- 写入 `release_manifest.json` 历史
+- 记录 `logs\release_ops.log`
+- 失败时自动恢复原 `current`
+
+### 5.2 GUI 方式
+
+在 `scripts\release_manager.bat` 的版本列表里选中目标版本后点“回滚到选中版本”。
