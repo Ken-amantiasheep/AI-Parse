@@ -2,13 +2,14 @@
 
 ## 安装与升级验收
 
-- [ ] 首次执行 `scripts\client\install_client.bat` 可成功安装到 `%LocalAppData%\AI-parse`
+- [ ] 首次执行 `FIRST_INSTALL.bat` 可成功安装到指定目录
 - [ ] 安装后自动创建桌面快捷方式并可正常启动
-- [ ] 启动时可读取 `S:\Uploading Team\AI-parse\release_manifest.json`
+- [ ] 启动时可读取 `S:\Uploading Team\AI-parse\metadata\version.json`
 - [ ] 远端有新版本时弹出更新确认框
-- [ ] 点击“是”后可完成整包覆盖更新并启动新版本
+- [ ] 点击“是”后主程序退出并由外部 updater 完成更新后自动重启
 - [ ] 点击“否”后仍可继续使用旧版本
 - [ ] S 盘不可达时，若本地已有版本可继续启动
+- [ ] updater 缺失时可自动生成 fallback updater 并完成更新
 
 ## 功能验收
 
@@ -32,8 +33,6 @@
 ## 运维验收
 
 - [ ] 网关服务开机自启动成功
-- [ ] 使用 `deploy_to_s_drive.ps1` 发布后，`release_manifest.json` 的 `currentVersion` 正确更新
-- [ ] 发布失败时 `current` 会自动恢复到发布前版本
-- [ ] 使用 `switch_release.ps1` 回滚后可在 5 分钟内完成
-- [ ] 回滚失败时 `current` 会自动恢复到回滚前版本
-- [ ] `logs\release_ops.log` 可看到发布/回滚记录（操作者、from/to 版本、结果）
+- [ ] 使用 `RUN_PUBLISHER.bat` 发布后，`metadata/version.json` 版本正确更新
+- [ ] 共享盘产物包含 `release/AI_parse`、`metadata/version.json`、`FIRST_INSTALL.bat`
+- [ ] 发布包中包含 `updater/update_and_restart.cmd`

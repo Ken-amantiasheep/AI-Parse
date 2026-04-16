@@ -34,10 +34,11 @@ python main.py --autoplus path/to/autoplus.pdf --quote path/to/quote.pdf --mvr p
 
 ### 方法三：S 盘共享部署（推荐）
 
-1. 首次从 `S:\Uploading Team\AI-parse\install_client.bat` 安装到本机
-2. 日常从本地 `start_ai_parse.bat`（或桌面快捷方式）启动
-3. 启动器会自动检查 S 盘版本并弹窗询问是否更新
-4. 网关部署与发布回滚见 `DEPLOY_S_DRIVE.md`
+1. 首次从 `S:\Uploading Team\AI-parse\FIRST_INSTALL.bat` 安装到本机
+2. 日常从本机安装目录运行 `start_gui.bat`（或桌面快捷方式）
+3. 启动时会自动检查共享盘 `metadata/version.json`
+4. 若有新版本会弹窗提示，确认后自动更新并重启
+5. 发布流程见 `PUBLISH_README.md`
 
 ### 方法二：将文档放入对应文件夹
 

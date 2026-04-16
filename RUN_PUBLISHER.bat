@@ -5,9 +5,9 @@ cd /d "%~dp0"
 
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Python not found.
+    echo [ERROR] Python not found. Please install Python first.
     pause
     exit /b 1
 )
 
-python "%~dp0release_manager_gui.py"
+python "%~dp0publisher_gui.py"

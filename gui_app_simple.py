@@ -21,6 +21,7 @@ except ImportError:
 
 from utils.json_generator import IntactJSONGenerator
 from version import APP_VERSION
+from app_update import run_startup_update_check
 
 
 class DocumentDropFrame(tk.Frame):
@@ -848,6 +849,10 @@ class IntactJSONGeneratorGUI:
 
 def main():
     """Main entry point"""
+    # Startup update check runs before GUI initialization.
+    if run_startup_update_check(messagebox):
+        return
+
     if DND_AVAILABLE:
         root = TkinterDnD.Tk()
     else:
