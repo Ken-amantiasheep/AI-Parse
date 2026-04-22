@@ -335,6 +335,13 @@
           "required": true,
           "description": "MVR's Request Date/Time in YYYY-MM-DD format for THIS specific driver"
         },
+        "Consent_Date": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "For THIS specific driver, compare two dates from documents and choose the earlier one: (1) MVR header date from pattern like '*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***'; (2) AutoPlus 'Report Date'. Output the earlier date in YYYY-MM-DD format.",
+          "description": "Consent date in YYYY-MM-DD format for THIS specific driver (earlier of MVR date and AutoPlus Report Date)"
+        },
         "insurance_history_report_status": {
           "type": "string",
           "mode": "dropdown",

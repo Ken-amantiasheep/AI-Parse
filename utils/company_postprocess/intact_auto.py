@@ -1,6 +1,7 @@
 import re
 import json
 from typing import Dict, Optional
+from datetime import datetime, date
 from urllib import parse, request
 
 
@@ -211,6 +212,67 @@ def _to_full_date(generator, value) -> Optional[str]:
     return normalized if isinstance(normalized, str) else None
 
 
+def _parse_date_text(value: str) -> Optional[date]:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m-%d-%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _extract_earliest_consent_date_from_documents(documents: Optional[Dict[str, str]]) -> Optional[str]:
+    """
+    Consent_Date = earlier date between:
+    1) MVR header date: "*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***"
+    2) AutoPlus "Report Date"
+    """
+    if not isinstance(documents, dict) or not documents:
+        return None
+
+    mvr_dates = []
+    autoplus_dates = []
+
+    mvr_pattern = re.compile(
+        r"MOTOR\s+VEHICLE\s+RECORD\s*-\s*(\d{4}[/-]\d{2}[/-]\d{2})",
+        flags=re.IGNORECASE,
+    )
+    autoplus_pattern = re.compile(
+        r"Report\s*Date\s*[:\-]?\s*(\d{4}[/-]\d{2}[/-]\d{2}|\d{2}[/-]\d{2}[/-]\d{4})",
+        flags=re.IGNORECASE,
+    )
+
+    for content in documents.values():
+        if not isinstance(content, str) or not content:
+            continue
+
+        for match in mvr_pattern.findall(content):
+            parsed = _parse_date_text(match)
+            if parsed is not None:
+                mvr_dates.append(parsed)
+
+        for match in autoplus_pattern.findall(content):
+            parsed = _parse_date_text(match)
+            if parsed is not None:
+                autoplus_dates.append(parsed)
+
+    mvr_earliest = min(mvr_dates) if mvr_dates else None
+    autoplus_earliest = min(autoplus_dates) if autoplus_dates else None
+
+    if mvr_earliest and autoplus_earliest:
+        return min(mvr_earliest, autoplus_earliest).isoformat()
+    if mvr_earliest:
+        return mvr_earliest.isoformat()
+    if autoplus_earliest:
+        return autoplus_earliest.isoformat()
+    return None
+
+
 def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, str]]) -> Dict:
     if not isinstance(data, dict):
         return data
@@ -226,6 +288,7 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
     effective_date = term.get("policy_effective_date") if isinstance(term, dict) else None
 
     drivers = data.get("driver")
+    consent_date = _extract_earliest_consent_date_from_documents(documents)
     if isinstance(drivers, list):
         for driver in drivers:
             if not isinstance(driver, dict):
@@ -254,6 +317,9 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
             insured_since = _to_full_date(generator, driver.get("insured_without_interruption_since"))
             if insured_since is not None:
                 driver["insured_without_interruption_since"] = insured_since
+
+            if consent_date and _is_missing(driver.get("Consent_Date")):
+                driver["Consent_Date"] = consent_date
 
             lapse_desc = driver.get("lapse_in_insurance_description")
             if (

@@ -162,6 +162,37 @@ def test_validate_and_clean_json_for_intact_fills_broker_and_insured_since_defau
     assert cleaned["driver"][0]["insured_without_interruption_since"] == "2026-03-19"
 
 
+def test_validate_and_clean_json_for_intact_sets_consent_date_to_earlier_mvr_vs_autoplus():
+    fields_config = {
+        "fields": {
+            "driver": {
+                "fields": {
+                    "Consent_Date": {
+                        "mode": "date",
+                        "description": "Consent date in YYYY-MM-DD format",
+                    },
+                }
+            }
+        }
+    }
+    generator = _make_generator("Intact_Auto", fields_config=fields_config)
+    data = {
+        "driver": [
+            {"licence_class": "G"},
+            {"licence_class": "G2"},
+        ]
+    }
+    documents = {
+        "MVR_1": "*** MOTOR VEHICLE RECORD - 2026/04/08 ***",
+        "Autoplus_1": "Report Date: 2026-04-10",
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["driver"][0]["Consent_Date"] == "2026-04-08"
+    assert cleaned["driver"][1]["Consent_Date"] == "2026-04-08"
+
+
 def test_validate_and_clean_json_for_intact_keeps_lapse_start_end_when_lapse_yes():
     fields_config = {
         "fields": {
