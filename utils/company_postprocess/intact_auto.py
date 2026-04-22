@@ -286,6 +286,17 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
 
     term = data.get("term")
     effective_date = term.get("policy_effective_date") if isinstance(term, dict) else None
+    effective_date_full = _to_full_date(generator, effective_date)
+
+    insureds = data.get("insureds")
+    if isinstance(insureds, dict):
+        if _is_missing(insureds.get("insured_with_broker_since")) and not _is_missing(effective_date_full):
+            insureds["insured_with_broker_since"] = effective_date_full
+            print("[INFO] Filled insured_with_broker_since from policy_effective_date")
+
+        insured_with_broker_since = _to_full_date(generator, insureds.get("insured_with_broker_since"))
+        if insured_with_broker_since is not None:
+            insureds["insured_with_broker_since"] = insured_with_broker_since
 
     drivers = data.get("driver")
     consent_date = _extract_earliest_consent_date_from_documents(documents)

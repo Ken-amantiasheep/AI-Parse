@@ -734,11 +734,17 @@
           "description": "Automobile Insurance Cancelled or Refused in Last 3 Years",
           "options": ["Yes", "No"]
         },
+        "insured_with_broker_since": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "description": "Insured With Broker Since in YYYY-MM-DD format"
+        },
         "ubi_consent": {
           "type": "string",
           "mode": "dropdown",
           "required": true,
-          "extraction_logic": "Check the quote document for 'W0048 - MY DRIVE-ACTIVATION (NEW BUS ONLY) INCLUDED' or any MY DRIVE related content. Also check the application document for mentions of MY DRIVE. If MY DRIVE is found in either the quote or application, select 'Yes'. Otherwise, select 'No'.",
+          "extraction_logic": "Use fuzzy document understanding to determine UBI consent. Strong Yes signals include Quote mentions like 'W0048 - MY DRIVE-ACTIVATION (NEW BUS ONLY) INCLUDED' or equivalent MY DRIVE activation wording, and Application clues such as 'Number of Telematics: 1' (especially near the end pages). Treat semantically equivalent wording/OCR variants as valid evidence. If clear UBI/telematics enrollment evidence is present, select 'Yes'; otherwise select 'No'.",
           "description": "UBI Consent (Usage-Based Insurance)",
           "options": ["No", "Not Requested", "Yes"]
         }

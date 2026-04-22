@@ -134,6 +134,14 @@ def test_validate_and_clean_json_for_intact_fills_broker_and_insured_since_defau
                     },
                 }
             },
+            "insureds": {
+                "fields": {
+                    "insured_with_broker_since": {
+                        "mode": "date",
+                        "description": "Insured With Broker Since in YYYY-MM-DD format",
+                    },
+                }
+            },
         }
     }
     generator = _make_generator("Intact_Auto", fields_config=fields_config)
@@ -151,6 +159,9 @@ def test_validate_and_clean_json_for_intact_fills_broker_and_insured_since_defau
                 "insured_without_interruption_since": None,
             }
         ],
+        "insureds": {
+            "insured_with_broker_since": "",
+        },
     }
     documents = {
         "Application": "Some header text... Broker Code :X40501 ... footer",
@@ -160,6 +171,7 @@ def test_validate_and_clean_json_for_intact_fills_broker_and_insured_since_defau
 
     assert cleaned["broker_information"]["broker_number"] == "40501"
     assert cleaned["driver"][0]["insured_without_interruption_since"] == "2026-03-19"
+    assert cleaned["insureds"]["insured_with_broker_since"] == "2026-03-19"
 
 
 def test_validate_and_clean_json_for_intact_sets_consent_date_to_earlier_mvr_vs_autoplus():
