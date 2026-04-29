@@ -446,7 +446,7 @@ def test_build_prompt_hash_is_stable_for_fixture():
     generator = _make_generator("Intact_Auto")
     prompt = generator._build_prompt({"quote": "abc", "application": "xyz"})
     digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-    assert digest == "ce5b9916a7b867033bbac7f4cf5863c2c87129c3bff4707835e30c3fa7ffb6f5"
+    assert digest == "096f974cde5bd6e51a8975c91cb4e05d4fbb946049f4aaa9eec30853946108ba"
 
 
 def test_company_routing_resolution():
@@ -558,6 +558,176 @@ def test_intact_auto_additional_driver_address_falls_back_to_root():
 
     assert cleaned["driver_2_address"]["postal_code"] == "L6C2C5"
     assert cleaned["driver_2_address"]["full_address"] == "168 TRAIL RIDGE LANE, MARKHAM, ON"
+
+
+def test_intact_auto_normalizes_single_risk_object_to_array():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": {
+            "risk_type": "PPV",
+            "serial_number": "2FMPK3J91MBA27618",
+            "model": "2021 FORD EDGE SEL 4DR 2WD",
+        }
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert isinstance(cleaned["risk"], list)
+    assert len(cleaned["risk"]) == 1
+    assert cleaned["risk"][0]["serial_number"] == "2FMPK3J91MBA27618"
+
+
+def test_intact_auto_claim_total_amount_paid_removes_trailing_zero_decimals():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "claim": {
+            "has_claim": "Yes",
+            "total_amount_paid": ["3203.00", "1250.50", "0.00"],
+        }
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert cleaned["claim"]["total_amount_paid"] == ["3203", "1250", "0"]
+
+
+def test_intact_auto_multi_risk_assignment_moves_common_fields_into_each_vehicle():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [
+            {"risk_type": "PPV", "serial_number": "VIN1"},
+            {"risk_type": "PPV", "serial_number": "VIN2"},
+        ],
+        "assignment": {
+            "vehicle_1": {
+                "driver_1": {
+                    "name": "A B",
+                    "percentage_of_use": 100,
+                }
+            },
+            "vehicle_2": {
+                "driver_1": {
+                    "name": "A B",
+                    "percentage_of_use": 100,
+                }
+            },
+            "type_of_use": "Pleasure",
+            "km_toward_work": None,
+            "annual_km": 10000,
+            "annual_business_km": 0,
+            "automobile_rented_or_leased_to_others": "No",
+            "automobile_used_to_carry_passengers_for_compensation_or_hire": "No",
+            "automobile_carry_explosives_or_radioactive_materials": "No",
+        },
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assignment = cleaned["assignment"]
+    assert "type_of_use" not in assignment
+    assert "annual_km" not in assignment
+    assert assignment["vehicle_1"]["type_of_use"] == "Pleasure"
+    assert assignment["vehicle_1"]["annual_km"] == 10000
+    assert assignment["vehicle_2"]["type_of_use"] == "Pleasure"
+    assert assignment["vehicle_2"]["annual_km"] == 10000
+
+
+def test_intact_auto_multi_risk_assignment_copies_vehicle1_fields_to_other_vehicles():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [
+            {"risk_type": "PPV", "serial_number": "VIN1"},
+            {"risk_type": "PPV", "serial_number": "VIN2"},
+        ],
+        "assignment": {
+            "vehicle_1": {
+                "driver_1": {"name": "A B", "percentage_of_use": 100},
+                "type_of_use": "Pleasure",
+                "km_toward_work": None,
+                "annual_km": 12000,
+                "annual_business_km": 0,
+                "automobile_rented_or_leased_to_others": "No",
+                "automobile_used_to_carry_passengers_for_compensation_or_hire": "No",
+                "automobile_carry_explosives_or_radioactive_materials": "No",
+            },
+            "vehicle_2": {
+                "driver_1": {"name": "C D", "percentage_of_use": 100},
+            },
+        },
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+    v2 = cleaned["assignment"]["vehicle_2"]
+    assert v2["type_of_use"] == "Pleasure"
+    assert v2["annual_km"] == 12000
+    assert v2["annual_business_km"] == 0
+    assert v2["automobile_rented_or_leased_to_others"] == "No"
+    assert v2["automobile_used_to_carry_passengers_for_compensation_or_hire"] == "No"
+    assert v2["automobile_carry_explosives_or_radioactive_materials"] == "No"
+
+
+def test_intact_auto_multi_risk_assignment_uses_per_vehicle_quote_blocks():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [
+            {"risk_type": "PPV", "serial_number": "VIN1"},
+            {"risk_type": "PPV", "serial_number": "VIN2"},
+        ],
+        "assignment": {
+            "vehicle_1": {
+                "driver_1": {"name": "Maxiongyi Peng", "percentage_of_use": 100},
+            },
+            "vehicle_2": {
+                "driver_1": {"name": "Maxiongyi Peng", "percentage_of_use": 100},
+            },
+            # Simulate model mistakenly outputting one shared set.
+            "type_of_use": "Pleasure",
+            "km_toward_work": 15,
+            "annual_km": 15000,
+            "annual_business_km": 0,
+            "automobile_rented_or_leased_to_others": "No",
+            "automobile_used_to_carry_passengers_for_compensation_or_hire": "No",
+            "automobile_carry_explosives_or_radioactive_materials": "No",
+        },
+    }
+    documents = {
+        "Quote": """
+Vehicle 1 of 2 | Private Passenger - 2021 MERCEDES-BENZ C43 4MATIC 4DR
+Pleasure                         8000                    0
+Primary Use                      Annual km               Business km              Daily km
+
+Vehicle 2 of 2 | Private Passenger - 2013 MAZDA MX5 MIATA GS CONVERTIBLE
+Pleasure                         15000                   15
+Primary Use                      Annual km               Business km              Daily km
+""",
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assignment = cleaned["assignment"]
+    assert assignment["vehicle_1"]["type_of_use"] == "Pleasure"
+    assert assignment["vehicle_1"]["annual_km"] == 8000
+    assert assignment["vehicle_1"]["annual_business_km"] == 0
+    assert assignment["vehicle_1"]["km_toward_work"] == 0
+    assert assignment["vehicle_2"]["type_of_use"] == "Pleasure"
+    assert assignment["vehicle_2"]["annual_km"] == 15000
+    assert assignment["vehicle_2"]["annual_business_km"] == 0
+    assert assignment["vehicle_2"]["km_toward_work"] == 15
+
+
+def test_build_prompt_includes_strict_json_output_rules():
+    generator = _make_generator("Intact_Auto")
+    prompt = generator._build_prompt({"quote": "abc"})
+
+    assert "Output ONLY a single valid JSON object." in prompt
+    assert "For sections configured as arrays (for example `risk` in Intact Auto), ALWAYS output an array `[]`." in prompt
+
+
+def test_build_prompt_caa_excludes_intact_auto_json_rules():
+    generator = _make_generator("CAA_Auto", fields_config=_load_json_config("caa_auto_fields_config.json"))
+    prompt = generator._build_prompt({"quote": "abc"})
+
+    assert "## Intact Auto — JSON output (mandatory)" not in prompt
+    assert "Output ONLY a single valid JSON object." not in prompt
 
 
 def test_caa_vehicle_table_keeps_single_digit_daily_km_when_not_cylinders():

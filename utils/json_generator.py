@@ -122,7 +122,14 @@ class IntactJSONGenerator:
         """Check if company is Intact-related (Intact, Intact_Auto, etc.)"""
         company_upper = self.company.upper()
         return company_upper == "INTACT" or company_upper.startswith("INTACT_")
-    
+
+    def _is_intact_auto_company(self) -> bool:
+        """Intact Auto JSON extraction only (legacy `Intact` alias included; not CAA or other lines)."""
+        u = self.company.upper()
+        if u == "INTACT" or u == "INTACT_AUTO":
+            return True
+        return u.startswith("INTACT_") and u.endswith("_AUTO")
+
     def _build_fields_prompt_section(self, fields_config: Dict) -> str:
         """Build prompt section from fields configuration"""
         if not fields_config.get("fields"):
@@ -219,7 +226,18 @@ class IntactJSONGenerator:
             section_num += 1
         
         return "\n".join(sections)
-    
+
+    @staticmethod
+    def _build_intact_auto_json_format_requirements() -> str:
+        """Intact Auto only: strict JSON and multi-vehicle `risk` array rules."""
+        return """## Intact Auto — JSON output (mandatory)
+- Output ONLY a single valid JSON object. Do not output markdown fences, comments, or explanatory text.
+- JSON must be syntactically valid: include commas between array/object elements and use double quotes for keys/strings.
+- For sections configured as arrays (for example `risk` in Intact Auto), ALWAYS output an array `[]`.
+- If multiple vehicles/risks are found, include ALL of them in `risk` as separate array elements in the same order as the source document.
+
+"""
+
     def _build_property_format_requirements(self) -> str:
         """Build critical format requirements section for property type"""
         requirements = """
@@ -976,6 +994,9 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         
         prompt += "\n## Output Requirements:\n\n"
         prompt += "Generate a JSON object with the following structure:\n\n"
+
+        if self._is_intact_auto_company():
+            prompt += self._build_intact_auto_json_format_requirements()
         
         # Add critical format requirements for property type
         if self.company.endswith("_property"):

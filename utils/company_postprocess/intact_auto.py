@@ -18,6 +18,15 @@ _DRIVER_IDENTITY_KEYS = (
     "marital_status",
 )
 _DRIVER_ADDRESS_KEYS = ("postal_code", "full_address")
+_ASSIGNMENT_COMMON_KEYS = (
+    "type_of_use",
+    "km_toward_work",
+    "annual_km",
+    "annual_business_km",
+    "automobile_rented_or_leased_to_others",
+    "automobile_used_to_carry_passengers_for_compensation_or_hire",
+    "automobile_carry_explosives_or_radioactive_materials",
+)
 
 
 def _promote_additional_driver_identity_blocks(data: Dict) -> Dict:
@@ -106,6 +115,132 @@ def _extract_broker_number_from_documents(documents: Optional[Dict[str, str]]) -
         if digits:
             return digits
     return None
+
+
+def _extract_assignment_values_by_vehicle_from_documents(documents: Optional[Dict[str, str]]) -> Dict[int, Dict]:
+    """
+    Extract per-vehicle assignment values from quote text blocks like:
+    Vehicle N of M ... then a line near "Primary Use / Annual km / Business km / Daily km".
+    """
+    if not isinstance(documents, dict) or not documents:
+        return {}
+
+    full_text = "\n".join(v for v in documents.values() if isinstance(v, str))
+    if not full_text:
+        return {}
+
+    vehicle_values: Dict[int, Dict] = {}
+    block_pattern = re.compile(
+        r"Vehicle\s+(\d+)\s+of\s+\d+([\s\S]*?)(?=Vehicle\s+\d+\s+of\s+\d+|$)",
+        flags=re.IGNORECASE,
+    )
+
+    for match in block_pattern.finditer(full_text):
+        vehicle_idx = int(match.group(1))
+        block = match.group(2)
+        marker = re.search(r"Primary\s+Use[\s\S]{0,80}?Daily\s*km", block, flags=re.IGNORECASE)
+        if not marker:
+            continue
+
+        prefix = block[: marker.start()]
+        candidate_line = None
+        for raw_line in reversed(prefix.splitlines()):
+            line = raw_line.strip()
+            if not line:
+                continue
+            if not re.search(r"\d", line):
+                continue
+            candidate_line = line
+            break
+
+        if not candidate_line:
+            continue
+
+        number_matches = list(re.finditer(r"\d+", candidate_line))
+        if not number_matches:
+            continue
+
+        first_num_start = number_matches[0].start()
+        type_of_use = candidate_line[:first_num_start].strip()
+        nums = [int(m.group()) for m in number_matches]
+        if not type_of_use or not nums:
+            continue
+
+        annual_km = nums[0]
+        if len(nums) >= 3:
+            annual_business_km = nums[1]
+            daily_km = nums[2]
+        elif len(nums) == 2:
+            annual_business_km = 0
+            daily_km = nums[1]
+        else:
+            annual_business_km = 0
+            daily_km = 0
+
+        vehicle_values[vehicle_idx] = {
+            "type_of_use": type_of_use,
+            "annual_km": annual_km,
+            "annual_business_km": annual_business_km,
+            "km_toward_work": daily_km,
+        }
+
+    return vehicle_values
+
+
+def _normalize_multi_risk_assignment(data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
+    """
+    For Intact Auto multi-risk outputs, assignment should carry a full per-vehicle block.
+    When risk count > 1 and assignment contains shared top-level usage fields, copy those
+    fields into each vehicle_N block and remove duplicated top-level fields.
+    """
+    if not isinstance(data, dict):
+        return data
+
+    risks = data.get("risk")
+    if not isinstance(risks, list) or len(risks) <= 1:
+        return data
+
+    assignment = data.get("assignment")
+    if not isinstance(assignment, dict):
+        return data
+
+    parsed_vehicle_values = _extract_assignment_values_by_vehicle_from_documents(documents)
+
+    # Build defaults from top-level shared fields first; fall back to vehicle_1 fields.
+    # This ensures every additional vehicle gets a full set even when model only filled vehicle_1.
+    default_values = {}
+    for field_key in _ASSIGNMENT_COMMON_KEYS:
+        if field_key in assignment:
+            default_values[field_key] = assignment[field_key]
+
+    vehicle_1 = assignment.get("vehicle_1")
+    if isinstance(vehicle_1, dict):
+        for field_key in _ASSIGNMENT_COMMON_KEYS:
+            if field_key not in default_values and field_key in vehicle_1:
+                default_values[field_key] = vehicle_1[field_key]
+
+    if not default_values:
+        return data
+
+    for i in range(1, len(risks) + 1):
+        vehicle_key = f"vehicle_{i}"
+        vehicle_assignment = assignment.get(vehicle_key)
+        if not isinstance(vehicle_assignment, dict):
+            vehicle_assignment = {}
+            assignment[vehicle_key] = vehicle_assignment
+
+        # Prefer explicit per-vehicle values parsed from quote blocks.
+        if i in parsed_vehicle_values:
+            vehicle_assignment.update(parsed_vehicle_values[i])
+
+        for field_key in _ASSIGNMENT_COMMON_KEYS:
+            if field_key in default_values and field_key not in vehicle_assignment:
+                vehicle_assignment[field_key] = default_values[field_key]
+
+    for field_key in _ASSIGNMENT_COMMON_KEYS:
+        assignment.pop(field_key, None)
+
+    return data
 
 
 def _decode_vin_model_detail(vin: str) -> Optional[str]:
@@ -273,6 +408,39 @@ def _extract_earliest_consent_date_from_documents(documents: Optional[Dict[str, 
     return None
 
 
+def _normalize_intact_claim_total_amount_paid(data: Dict) -> Dict:
+    """
+    Intact claim.total_amount_paid should always be integer-like string.
+    Examples: "3203.00" -> "3203", "1250.50" -> "1250".
+    """
+    if not isinstance(data, dict):
+        return data
+
+    claim = data.get("claim")
+    if not isinstance(claim, dict):
+        return data
+
+    amounts = claim.get("total_amount_paid")
+    if not isinstance(amounts, list):
+        return data
+
+    normalized = []
+    for amount in amounts:
+        text = str(amount).strip() if amount is not None else ""
+        if not text:
+            normalized.append(amount)
+            continue
+
+        compact = text.replace(",", "")
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", compact):
+            normalized.append(compact.split(".", 1)[0])
+            continue
+        normalized.append(amount)
+
+    claim["total_amount_paid"] = normalized
+    return data
+
+
 def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, str]]) -> Dict:
     if not isinstance(data, dict):
         return data
@@ -344,6 +512,12 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
                 print("[INFO] Filled expiry_date for No Automobile lapse using policy_effective_date")
 
     risks = data.get("risk")
+    # Backward compatibility: some model responses still emit a single risk object.
+    # Normalize to list so downstream logic supports multi-risk uniformly.
+    if isinstance(risks, dict):
+        data["risk"] = [risks]
+        risks = data["risk"]
+        print("[INFO] Normalized Intact risk object to risk array")
     if isinstance(risks, list):
         vin_model_cache: Dict[str, Optional[str]] = {}
         for risk in risks:
@@ -372,5 +546,7 @@ def apply(generator, data: Dict, documents: Optional[Dict[str, str]] = None) -> 
         print(f"[INFO] Normalized {intact_date_fixes} Intact date field(s) by configured format")
     data = generator._remove_non_intact_membership_fields(data)
     data = _apply_intact_defaults(generator, data, documents)
+    data = _normalize_multi_risk_assignment(data, documents)
     data = _promote_additional_driver_identity_blocks(data)
+    data = _normalize_intact_claim_total_amount_paid(data)
     return generator._normalize_intact_structure(data)
