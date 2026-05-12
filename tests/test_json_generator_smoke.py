@@ -205,6 +205,104 @@ def test_validate_and_clean_json_for_intact_sets_consent_date_to_earlier_mvr_vs_
     assert cleaned["driver"][1]["Consent_Date"] == "2026-04-08"
 
 
+def test_validate_and_clean_json_for_intact_consent_date_matches_per_driver_mvr():
+    """When multiple MVR documents are provided, each driver should use the upper-right
+    header date from THEIR OWN MVR (matched by driver name), not the global earliest."""
+    fields_config = {
+        "fields": {
+            "driver": {
+                "fields": {
+                    "Consent_Date": {
+                        "mode": "date",
+                        "description": "Consent date in YYYY-MM-DD format",
+                    },
+                }
+            }
+        }
+    }
+    generator = _make_generator("Intact_Auto", fields_config=fields_config)
+    data = {
+        "applicant_information": {
+            "first_name": "NAVDEEP",
+            "last_name": "SINGH",
+        },
+        "driver": [
+            {"licence_class": "G2"},
+            {
+                "first_name": "HARPREET",
+                "last_name": "KAUR",
+                "licence_class": "G2",
+            },
+        ],
+    }
+    documents = {
+        "MVR_1": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/07 ***\n"
+            "Name: SINGH, NAVDEEP\n"
+            "Licence: N09080000891124\n"
+        ),
+        "MVR_2": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/22 ***\n"
+            "Name: KAUR, HARPREET\n"
+            "Licence: H06550000915417\n"
+        ),
+        "Autoplus_1": "Report Date: 2026-04-25",
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["driver"][0]["Consent_Date"] == "2026-04-07"
+    assert cleaned["driver"][1]["Consent_Date"] == "2026-04-22"
+
+
+def test_validate_and_clean_json_for_intact_consent_date_picks_earlier_autoplus_per_driver():
+    """Per-driver MVR header date, but if AutoPlus Report Date is earlier, it wins."""
+    fields_config = {
+        "fields": {
+            "driver": {
+                "fields": {
+                    "Consent_Date": {
+                        "mode": "date",
+                        "description": "Consent date in YYYY-MM-DD format",
+                    },
+                }
+            }
+        }
+    }
+    generator = _make_generator("Intact_Auto", fields_config=fields_config)
+    data = {
+        "applicant_information": {
+            "first_name": "NAVDEEP",
+            "last_name": "SINGH",
+        },
+        "driver": [
+            {"licence_class": "G2"},
+            {
+                "first_name": "HARPREET",
+                "last_name": "KAUR",
+                "licence_class": "G2",
+            },
+        ],
+    }
+    documents = {
+        "MVR_1": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/07 ***\n"
+            "Name: SINGH, NAVDEEP\n"
+        ),
+        "MVR_2": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/22 ***\n"
+            "Name: KAUR, HARPREET\n"
+        ),
+        "Autoplus_1": "Report Date: 2026-04-05",
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    # AutoPlus (2026-04-05) is earlier than both MVR header dates, so both drivers fall back to AutoPlus.
+    assert cleaned["driver"][0]["Consent_Date"] == "2026-04-05"
+    assert cleaned["driver"][1]["Consent_Date"] == "2026-04-05"
+
+
 def test_validate_and_clean_json_for_intact_keeps_lapse_start_end_when_lapse_yes():
     fields_config = {
         "fields": {

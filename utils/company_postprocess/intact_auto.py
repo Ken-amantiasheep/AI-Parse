@@ -361,48 +361,125 @@ def _parse_date_text(value: str) -> Optional[date]:
     return None
 
 
-def _extract_earliest_consent_date_from_documents(documents: Optional[Dict[str, str]]) -> Optional[str]:
+# MVR header sits at the very top-right of each MVR document and looks like:
+#   *** MOTOR VEHICLE RECORD - YYYY/MM/DD ***
+# This header date is the authoritative MVR "consent" date for that driver.
+_MVR_HEADER_PATTERN = re.compile(
+    r"MOTOR\s+VEHICLE\s+RECORD\s*-\s*(\d{4}[/-]\d{2}[/-]\d{2})",
+    flags=re.IGNORECASE,
+)
+_AUTOPLUS_REPORT_DATE_PATTERN = re.compile(
+    r"Report\s*Date\s*[:\-]?\s*(\d{4}[/-]\d{2}[/-]\d{2}|\d{2}[/-]\d{2}[/-]\d{4})",
+    flags=re.IGNORECASE,
+)
+
+
+def _build_mvr_header_date_index(documents: Optional[Dict[str, str]]):
     """
-    Consent_Date = earlier date between:
-    1) MVR header date: "*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***"
-    2) AutoPlus "Report Date"
+    Return a list of (doc_key, header_date, upper_content) for every MVR document.
+    Only the FIRST `*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***` match in each document
+    is kept, since that is the top-of-page header in the upper-right corner.
     """
+    index = []
+    if not isinstance(documents, dict):
+        return index
+
+    for doc_key, content in documents.items():
+        if not isinstance(doc_key, str) or not isinstance(content, str) or not content:
+            continue
+        if not doc_key.upper().startswith("MVR"):
+            continue
+        match = _MVR_HEADER_PATTERN.search(content)
+        if not match:
+            continue
+        header_date = _parse_date_text(match.group(1))
+        if header_date is None:
+            continue
+        index.append((doc_key, header_date, content.upper()))
+    return index
+
+
+def _extract_earliest_autoplus_report_date(documents: Optional[Dict[str, str]]):
+    """Return the earliest AutoPlus 'Report Date' across all documents (as date)."""
     if not isinstance(documents, dict) or not documents:
         return None
-
-    mvr_dates = []
-    autoplus_dates = []
-
-    mvr_pattern = re.compile(
-        r"MOTOR\s+VEHICLE\s+RECORD\s*-\s*(\d{4}[/-]\d{2}[/-]\d{2})",
-        flags=re.IGNORECASE,
-    )
-    autoplus_pattern = re.compile(
-        r"Report\s*Date\s*[:\-]?\s*(\d{4}[/-]\d{2}[/-]\d{2}|\d{2}[/-]\d{2}[/-]\d{4})",
-        flags=re.IGNORECASE,
-    )
-
+    dates = []
     for content in documents.values():
         if not isinstance(content, str) or not content:
             continue
-
-        for match in mvr_pattern.findall(content):
+        for match in _AUTOPLUS_REPORT_DATE_PATTERN.findall(content):
             parsed = _parse_date_text(match)
             if parsed is not None:
-                mvr_dates.append(parsed)
+                dates.append(parsed)
+    return min(dates) if dates else None
 
-        for match in autoplus_pattern.findall(content):
-            parsed = _parse_date_text(match)
-            if parsed is not None:
-                autoplus_dates.append(parsed)
 
-    mvr_earliest = min(mvr_dates) if mvr_dates else None
-    autoplus_earliest = min(autoplus_dates) if autoplus_dates else None
+def _driver_name_tokens(driver: Dict, applicant_info: Optional[Dict], is_primary: bool):
+    """Return (first_upper, last_upper) for the given driver."""
+    source = applicant_info if (is_primary and isinstance(applicant_info, dict)) else driver
+    if not isinstance(source, dict):
+        return "", ""
+    first = source.get("first_name")
+    last = source.get("last_name")
+    first = first.strip().upper() if isinstance(first, str) else ""
+    last = last.strip().upper() if isinstance(last, str) else ""
+    return first, last
 
-    if mvr_earliest and autoplus_earliest:
-        return min(mvr_earliest, autoplus_earliest).isoformat()
-    if mvr_earliest:
-        return mvr_earliest.isoformat()
+
+def _find_mvr_header_date_for_driver(
+    driver: Dict,
+    applicant_info: Optional[Dict],
+    is_primary: bool,
+    mvr_index,
+):
+    """
+    Pick the MVR header date that belongs to THIS driver.
+
+    Priority:
+    1) Match by driver name appearing in an MVR document (first_name AND last_name).
+    2) If only one MVR document exists, use its header date.
+    3) Otherwise, fall back to the earliest MVR header date.
+    Returns a `date` or None.
+    """
+    if not mvr_index:
+        return None
+
+    first, last = _driver_name_tokens(driver, applicant_info, is_primary)
+    if first or last:
+        for _doc_key, header_date, upper_content in mvr_index:
+            last_hit = bool(last) and last in upper_content
+            first_hit = bool(first) and first in upper_content
+            if last and first:
+                if last_hit and first_hit:
+                    return header_date
+            elif last_hit or first_hit:
+                return header_date
+
+    if len(mvr_index) == 1:
+        return mvr_index[0][1]
+
+    return min(entry[1] for entry in mvr_index)
+
+
+def _compute_consent_date_for_driver(
+    driver: Dict,
+    applicant_info: Optional[Dict],
+    is_primary: bool,
+    mvr_index,
+    autoplus_earliest,
+) -> Optional[str]:
+    """
+    Consent_Date for a single driver = earlier of:
+      - this driver's MVR header date (upper-right `*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***`)
+      - global earliest AutoPlus 'Report Date'
+    Returns YYYY-MM-DD string or None.
+    """
+    mvr_date = _find_mvr_header_date_for_driver(driver, applicant_info, is_primary, mvr_index)
+
+    if mvr_date and autoplus_earliest:
+        return min(mvr_date, autoplus_earliest).isoformat()
+    if mvr_date:
+        return mvr_date.isoformat()
     if autoplus_earliest:
         return autoplus_earliest.isoformat()
     return None
@@ -467,9 +544,11 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
             insureds["insured_with_broker_since"] = insured_with_broker_since
 
     drivers = data.get("driver")
-    consent_date = _extract_earliest_consent_date_from_documents(documents)
+    applicant_info = data.get("applicant_information") if isinstance(data.get("applicant_information"), dict) else None
+    mvr_index = _build_mvr_header_date_index(documents)
+    autoplus_earliest = _extract_earliest_autoplus_report_date(documents)
     if isinstance(drivers, list):
-        for driver in drivers:
+        for driver_idx, driver in enumerate(drivers):
             if not isinstance(driver, dict):
                 continue
 
@@ -497,8 +576,16 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
             if insured_since is not None:
                 driver["insured_without_interruption_since"] = insured_since
 
-            if consent_date and _is_missing(driver.get("Consent_Date")):
-                driver["Consent_Date"] = consent_date
+            if _is_missing(driver.get("Consent_Date")):
+                driver_consent_date = _compute_consent_date_for_driver(
+                    driver,
+                    applicant_info,
+                    is_primary=(driver_idx == 0),
+                    mvr_index=mvr_index,
+                    autoplus_earliest=autoplus_earliest,
+                )
+                if driver_consent_date:
+                    driver["Consent_Date"] = driver_consent_date
 
             lapse_desc = driver.get("lapse_in_insurance_description")
             if (
