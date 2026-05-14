@@ -80,8 +80,8 @@
 |--------|------|------|------|------|
 | `has_loan` | string | radio | ❌ | 是否有贷款（Yes, No） |
 | `type_of_interest` | string | dropdown | ✅ | 利息类型（Lessor, Lienholder） |
-| `client_selection_type` | string | radio | ✅ | 客户选择类型（Create a new party, Select from corporate list） |
 | `company_name` | string | dropdown | ✅ | 公司名称（从企业列表中选择，共34个选项） |
+| `address` | string | free_text | ✅ | Lienholder/Lessor 完整地址（从 application 提取） |
 
 ---
 

@@ -93,11 +93,15 @@ def test_validate_and_clean_json_for_intact_dates_and_membership_cleanup():
             "has_claim": "No",
             "date_of_loss": ["2023-01-19", "2020-03-10"],
         },
-        "interest": {
-            "has_loan": "No",
-            "type_of_interest": "Lienholder",
-            "company_name": "Some Bank",
-        },
+        "risk": [
+            {
+                "interest": {
+                    "has_loan": "No",
+                    "type_of_interest": "Lienholder",
+                    "company_name": "Some Bank",
+                }
+            }
+        ],
     }
 
     cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
@@ -114,7 +118,7 @@ def test_validate_and_clean_json_for_intact_dates_and_membership_cleanup():
     assert "lapse_start" not in cleaned["driver"][0]
     assert "lapse_end" not in cleaned["driver"][0]
     assert cleaned["claim"] == {"has_claim": "No"}
-    assert cleaned["interest"] == {"has_loan": "No"}
+    assert cleaned["risk"][0]["interest"] == {"has_loan": "No"}
     assert cleaned["application_info"] == {}
 
 

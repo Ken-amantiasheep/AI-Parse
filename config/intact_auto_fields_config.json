@@ -99,7 +99,7 @@
       "required": true,
       "description": "Risk information - array of vehicles. Extract ALL vehicles found in documents. Each element represents one vehicle.",
       "type": "array",
-      "extraction_logic": "Extract ALL vehicles (risks) found in the documents. Each vehicle should be a separate element in the array. If only one vehicle is found, the array should contain one element. Each risk element should contain all the risk fields for that specific vehicle.",
+      "extraction_logic": "Extract ALL vehicles (risks) found in the documents. Each vehicle should be a separate element in the array. If only one vehicle is found, the array should contain one element. Each risk element should contain all the risk fields for that specific vehicle—including the nested `interest` object for that vehicle's loan/lease/lienholder information.",
       "fields": {
         "risk_type": {
           "type": "string",
@@ -174,44 +174,43 @@
           "extraction_logic": "Extract from documents for THIS specific vehicle. If there is no clear evidence indicating the vehicle has been modified or has accessories, default to 'No'.",
           "description": "Whether the vehicle has been modified or has accessories",
           "options": ["Yes", "No"]
-        }
-      }
-    },
-    "interest": {
-      "required": true,
-      "description": "Interest and financing information",
-      "fields": {
-        "has_loan": {
-          "type": "string",
-          "mode": "radio",
-          "required": true,
-          "extraction_logic": "Extract from documents whether the vehicle has a loan, interest, finance, or lease. IMPORTANT: If this field is 'No', then all other fields in the 'interest' section (type_of_interest, client_selection_type, company_name) should NOT be included in the output JSON.",
-          "description": "Whether the vehicle has a loan or interest or finance or lease",
-          "options": ["Yes", "No"]
         },
-        "type_of_interest": {
-          "type": "string",
-          "mode": "dropdown",
+        "interest": {
           "required": true,
-          "extraction_logic": "Extract from documents. If the arrangement is a 'lease', select 'Lessor'. For all other cases (loan, finance, lien, etc.), select 'Lienholder'. Only include this field if has_loan is 'Yes'.",
-          "description": "Type of interest for interested party",
-          "options": ["Lessor", "Lienholder"]
-        },
-        "client_selection_type": {
-          "type": "string",
-          "mode": "radio",
-          "required": true,
-          "extraction_logic": "If a matching company name is found in the corporate list (see company_name logic), select 'Select from corporate list'. If no matching company is found, select 'Create a new party'. Only include this field if has_loan is 'Yes'.",
-          "description": "Select an option for client selection",
-          "options": ["Create a new party", "Select from corporate list"]
-        },
-        "company_name": {
-          "type": "string",
-          "mode": "dropdown",
-          "required": true,
-          "extraction_logic": "Extract the company name from documents. Match it to the corporate list using fuzzy matching (e.g., 'BMO' matches 'Bank of Montreal', 'TD bank' or 'TD finance' matches 'TD Auto Finance', 'RBC' matches 'Royal Bank of Canada'). If a match is found, use the exact name from the list. If no match is found, set client_selection_type to 'Create a new party' and output the actual company name found in documents (even if it's not in the list). Only include this field if has_loan is 'Yes'.",
-          "description": "Company name from corporate list",
-          "options": ["Acura Financial Services", "Alphera Financial Services", "Audi Finance Services", "Bank of Montreal", "Banque Nationale Du Canada", "Banque Royal Prets Auto", "BMW Financial Services", "CIBC", "Edenpark", "FCA Canada Inc.", "Fédération des Caisses Desjardins du Québec", "Ford Credit Canada", "General Bank Of Canada", "Genesis Finance", "GM Financial", "Honda Finance Services", "Hyundai Motor Finance", "IA Financement Auto", "Kia Finance", "Lendcare Capital Inc.", "Libro Credit Union", "Lincoln Automotive Financial Services", "Manulife Bank Of Canada", "Mercedes-Benz Financial Services", "Mini Financial Services Canada", "Nissan Canada Inc.", "Porsche Financial Services Canada", "Royal Bank of Canada", "Scotia Dealer Advantage", "Services Financiers Mini Cooper", "TD Auto Finance", "Toyota Credit Canada", "Tricor Lease Finance Corp.", "Volkswagen Credit Canada Inc."]
+          "description": "Per-vehicle interest and financing (lienholder/lessor) for THIS risk only",
+          "fields": {
+            "has_loan": {
+              "type": "string",
+              "mode": "radio",
+              "required": true,
+              "extraction_logic": "For THIS specific vehicle, extract from documents whether it has a loan, interest, finance, or lease. IMPORTANT: If this field is 'No', then all other fields in this vehicle's `interest` object (type_of_interest, company_name, address) must NOT be included in the output JSON.",
+              "description": "Whether this vehicle has a loan or interest or finance or lease",
+              "options": ["Yes", "No"]
+            },
+            "type_of_interest": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "For THIS vehicle, extract from documents. If the arrangement is a 'lease', select 'Lessor'. For all other cases (loan, finance, lien, etc.), select 'Lienholder'. Only include this field if has_loan is 'Yes'.",
+              "description": "Type of interest for interested party",
+              "options": ["Lessor", "Lienholder"]
+            },
+            "company_name": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "For THIS vehicle, extract the lienholder/lessor company name from the application form (e.g., the 'Lienholder Name & Postal Address' section that applies to this VIN/vehicle). Match it to the corporate list using fuzzy matching (e.g., 'BMO' matches 'Bank of Montreal', 'TD bank' or 'TD finance' matches 'TD Auto Finance', 'RBC' matches 'Royal Bank of Canada', 'Scotiabank' matches 'Scotia Dealer Advantage'). If a match is found, use the exact name from the list. If no match is found, output the actual company name found in documents (even if it's not in the list). Only include this field if has_loan is 'Yes'.",
+              "description": "Company name from corporate list",
+              "options": ["Acura Financial Services", "Alphera Financial Services", "Audi Finance Services", "Bank of Montreal", "Banque Nationale Du Canada", "Banque Royal Prets Auto", "BMW Financial Services", "CIBC", "Edenpark", "FCA Canada Inc.", "Fédération des Caisses Desjardins du Québec", "Ford Credit Canada", "General Bank Of Canada", "Genesis Finance", "GM Financial", "Honda Finance Services", "Hyundai Motor Finance", "IA Financement Auto", "Kia Finance", "Lendcare Capital Inc.", "Libro Credit Union", "Lincoln Automotive Financial Services", "Manulife Bank Of Canada", "Mercedes-Benz Financial Services", "Mini Financial Services Canada", "Nissan Canada Inc.", "Porsche Financial Services Canada", "Royal Bank of Canada", "Scotia Dealer Advantage", "Services Financiers Mini Cooper", "TD Auto Finance", "Toyota Credit Canada", "Tricor Lease Finance Corp.", "Volkswagen Credit Canada Inc."]
+            },
+            "address": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "For THIS vehicle, extract the complete lienholder/lessor postal address from the application form's 'Lienholder Name & Postal Address' section (or equivalent for this vehicle). Capture the FULL address text exactly as shown in the application after the company name, including PO Box / street, station, city, province, and postal code (e.g., 'PO Box 1833 Station M Calgary AB T2P 2L8'). Do NOT include the company name itself in this field. Only include this field if has_loan is 'Yes'.",
+              "description": "Full postal address of the lienholder/lessor as shown in the application"
+            }
+          }
         }
       }
     },

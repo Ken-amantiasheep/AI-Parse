@@ -1442,9 +1442,23 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         if "application_info" not in data or not isinstance(data.get("application_info"), dict):
             data["application_info"] = {}
 
-        interest = data.get("interest")
-        if isinstance(interest, dict) and interest.get("has_loan") == "No":
-            data["interest"] = {"has_loan": "No"}
+        legacy_interest = data.pop("interest", None)
+        risks = data.get("risk")
+        if isinstance(risks, list) and risks:
+            for risk in risks:
+                if not isinstance(risk, dict):
+                    continue
+                interest = risk.get("interest")
+                if interest is None and isinstance(legacy_interest, dict):
+                    risk["interest"] = dict(legacy_interest)
+                    interest = risk["interest"]
+                if isinstance(interest, dict) and interest.get("has_loan") == "No":
+                    risk["interest"] = {"has_loan": "No"}
+        elif isinstance(legacy_interest, dict):
+            if legacy_interest.get("has_loan") == "No":
+                data["interest"] = {"has_loan": "No"}
+            else:
+                data["interest"] = legacy_interest
 
         claim = data.get("claim")
         if isinstance(claim, dict) and claim.get("has_claim") == "No":
