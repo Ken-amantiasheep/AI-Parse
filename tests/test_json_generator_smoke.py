@@ -548,7 +548,7 @@ def test_build_prompt_hash_is_stable_for_fixture():
     generator = _make_generator("Intact_Auto")
     prompt = generator._build_prompt({"quote": "abc", "application": "xyz"})
     digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-    assert digest == "096f974cde5bd6e51a8975c91cb4e05d4fbb946049f4aaa9eec30853946108ba"
+    assert digest == "2ac55a1594ce6509fd00584794dba8878eabd01259939db98c0655217061ad4a"
 
 
 def test_company_routing_resolution():
@@ -944,6 +944,19 @@ def test_caa_coapplicant_name_order_swaps_by_fullname_frequency_when_no_labels()
     assert cleaned["driver_list"] == ["KAUR RAJVINDER"]
     assert "KAUR RAJVINDER" in cleaned["drivers_information"]
     assert cleaned["vehicles_information"]["V1"]["drivers"] == ["KAUR RAJVINDER (Occ)"]
+
+
+def test_intact_auto_fields_prompt_expands_risk_interest_object():
+    """Nested config objects (e.g. risk.interest) must not be emitted as `interest: string` in the model prompt."""
+    cfg = _load_json_config("intact_auto_fields_config.json")
+    generator = _make_generator("Intact_Auto", fields_config=cfg)
+    section = generator._build_fields_prompt_section(cfg)
+    assert "interest: object" in section
+    assert "NEVER output `interest` as a single string" in section
+    assert "has_loan" in section
+    assert "type_of_interest" in section
+    assert "company_name" in section
+    assert "address" in section
 
 
 def test_get_required_top_level_fields_from_config():

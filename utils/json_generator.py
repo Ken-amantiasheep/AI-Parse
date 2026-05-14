@@ -6,7 +6,7 @@ import os
 import sys
 import re
 from datetime import datetime
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from anthropic import Anthropic
 import requests
 
@@ -152,80 +152,101 @@ class IntactJSONGenerator:
             if section_data.get("description"):
                 sections.append(f"   {section_data['description']}")
             
-            # Add fields
+            # Add fields (recurses into nested objects such as risk.interest)
             if "fields" in section_data:
                 for field_name, field_info in section_data["fields"].items():
-                    field_type = field_info.get("type", "string")
-                    field_mode = field_info.get("mode", "free_text")
-                    field_required = field_info.get("required", False)
-                    field_description = field_info.get("description", "")
-                    field_extraction_logic = field_info.get("extraction_logic", "")
-                    field_multiple = field_info.get("multiple", False)
-                    
-                    # Handle array/multiple fields
-                    if field_type == "array" or field_multiple:
-                        field_line = f"   - {field_name}: array of strings"
-                    else:
-                        field_line = f"   - {field_name}: {field_type}"
-                    
-                    if field_mode == "dropdown":
-                        options = field_info.get("options", [])
-                        if options:
-                            # Convert all options to strings to handle both string and numeric values
-                            options_str = ', '.join(str(opt) for opt in options)
-                            if field_multiple or field_type == "array":
-                                field_line += f" (can select multiple from: {options_str})"
-                            else:
-                                field_line += f" (options: {options_str})"
-                    
-                    if field_mode == "radio":
-                        options = field_info.get("options", [])
-                        if options:
-                            # Convert all options to strings to handle both string and numeric values
-                            options_str = ', '.join(str(opt) for opt in options)
-                            field_line += f" (select one: {options_str})"
-                    
-                    if field_mode == "date":
-                        date_format = self._get_configured_date_format(
-                            {
-                                "description": field_description,
-                                "extraction_logic": field_extraction_logic,
-                            },
-                            field_name,
-                        )
-                        field_line += f" (format: {date_format})"
-                    
-                    if not field_required:
-                        field_line += " (optional)"
-                    
-                    # Add extraction logic prominently
-                    if field_extraction_logic:
-                        # Special emphasis for CAA membership fields
-                        if field_name in ("caa_membership", "caa_membership_number"):
-                            field_line += f"\n     ⚠️ CRITICAL FIELD - READ CAREFULLY ⚠️"
-                            field_line += f"\n     → EXTRACTION LOGIC: {field_extraction_logic}"
-                            field_line += f"\n     → IMPORTANT: Search for 'Group discount apply: yes - CAA' pattern. If found, caa_membership MUST be 'Yes' and caa_membership_number MUST be extracted."
-                        # Special emphasis for coverages_information to include OPCF options
-                        elif field_name == "coverages_information":
-                            field_line += f"\n     ⚠️ CRITICAL: This field includes BOTH standard coverages AND ALL OPCF options/protections ⚠️"
-                            field_line += f"\n     → EXTRACTION LOGIC: {field_extraction_logic}"
-                            field_line += f"\n     → MANDATORY CHECKLIST: Extract EVERY row from coverage/premium tables in Quote PDF, including:"
-                            field_line += f"\n       1. Standard coverages: 'Bodily Injury', 'Property Damage', 'All Perils', 'Accident Benefits', 'Direct Compensation', 'Uninsured Automobile'"
-                            field_line += f"\n       2. OPCF options: '#5 Rent or Lease', '#20 Loss of Use', '#27 Liab to Unowned Veh.', '#43a Limited Waiver', '#44 Family Protection'"
-                            field_line += f"\n       3. Protection options: 'Minor Conviction Protection', 'Forgive & Forget', and ANY other protection types you see"
-                            field_line += f"\n     → DO NOT SKIP ANY ROWS! Extract ALL coverages and protections found in the Quote PDF tables!"
-                        else:
-                            field_line += f"\n     → EXTRACTION LOGIC: {field_extraction_logic}"
-                    
-                    if field_description:
-                        field_line += f"\n     → Description: {field_description}"
-                    
-                    sections.append(field_line)
+                    if isinstance(field_info, dict):
+                        self._append_config_field_prompt(sections, field_name, field_info, 0)
             
             sections.append("")  # Empty line between sections
             section_num += 1
         
         return "\n".join(sections)
+
+    def _append_config_field_prompt(
+        self, sections: List[str], field_name: str, field_info: Dict, depth: int = 0
+    ) -> None:
+        """Append prompt lines for one field from fields_config, recursing into nested `fields` objects."""
+        nested = field_info.get("fields") if isinstance(field_info, dict) else None
+        if isinstance(nested, dict) and nested:
+            bullet_pad = "   " + "  " * depth
+            cont_pad = "     " + "  " * depth
+            line = (
+                f"{bullet_pad}- {field_name}: object "
+                f"(nested JSON object with the sub-keys listed below; NEVER output `{field_name}` as a single string)"
+            )
+            sections.append(line)
+            if field_info.get("description"):
+                sections.append(f"{cont_pad}→ Description: {field_info['description']}")
+            if field_info.get("extraction_logic"):
+                sections.append(f"{cont_pad}→ EXTRACTION LOGIC: {field_info['extraction_logic']}")
+            for sub_name, sub_info in nested.items():
+                if isinstance(sub_info, dict):
+                    self._append_config_field_prompt(sections, sub_name, sub_info, depth + 1)
+            return
+
+        bullet_pad = "   " + "  " * depth
+        cont_pad = "     " + "  " * depth
+        field_type = field_info.get("type", "string")
+        field_mode = field_info.get("mode", "free_text")
+        field_required = field_info.get("required", False)
+        field_description = field_info.get("description", "")
+        field_extraction_logic = field_info.get("extraction_logic", "")
+        field_multiple = field_info.get("multiple", False)
+
+        if field_type == "array" or field_multiple:
+            field_line = f"{bullet_pad}- {field_name}: array of strings"
+        else:
+            field_line = f"{bullet_pad}- {field_name}: {field_type}"
+
+        if field_mode == "dropdown":
+            options = field_info.get("options", [])
+            if options:
+                options_str = ", ".join(str(opt) for opt in options)
+                if field_multiple or field_type == "array":
+                    field_line += f" (can select multiple from: {options_str})"
+                else:
+                    field_line += f" (options: {options_str})"
+
+        if field_mode == "radio":
+            options = field_info.get("options", [])
+            if options:
+                options_str = ", ".join(str(opt) for opt in options)
+                field_line += f" (select one: {options_str})"
+
+        if field_mode == "date":
+            date_format = self._get_configured_date_format(
+                {
+                    "description": field_description,
+                    "extraction_logic": field_extraction_logic,
+                },
+                field_name,
+            )
+            field_line += f" (format: {date_format})"
+
+        if not field_required:
+            field_line += " (optional)"
+
+        if field_extraction_logic:
+            if field_name in ("caa_membership", "caa_membership_number"):
+                field_line += f"\n{cont_pad}⚠️ CRITICAL FIELD - READ CAREFULLY ⚠️"
+                field_line += f"\n{cont_pad}→ EXTRACTION LOGIC: {field_extraction_logic}"
+                field_line += f"\n{cont_pad}→ IMPORTANT: Search for 'Group discount apply: yes - CAA' pattern. If found, caa_membership MUST be 'Yes' and caa_membership_number MUST be extracted."
+            elif field_name == "coverages_information":
+                field_line += f"\n{cont_pad}⚠️ CRITICAL: This field includes BOTH standard coverages AND ALL OPCF options/protections ⚠️"
+                field_line += f"\n{cont_pad}→ EXTRACTION LOGIC: {field_extraction_logic}"
+                field_line += f"\n{cont_pad}→ MANDATORY CHECKLIST: Extract EVERY row from coverage/premium tables in Quote PDF, including:"
+                field_line += f"\n{cont_pad}  1. Standard coverages: 'Bodily Injury', 'Property Damage', 'All Perils', 'Accident Benefits', 'Direct Compensation', 'Uninsured Automobile'"
+                field_line += f"\n{cont_pad}  2. OPCF options: '#5 Rent or Lease', '#20 Loss of Use', '#27 Liab to Unowned Veh.', '#43a Limited Waiver', '#44 Family Protection'"
+                field_line += f"\n{cont_pad}  3. Protection options: 'Minor Conviction Protection', 'Forgive & Forget', and ANY other protection types you see"
+                field_line += f"\n{cont_pad}→ DO NOT SKIP ANY ROWS! Extract ALL coverages and protections found in the Quote PDF tables!"
+            else:
+                field_line += f"\n{cont_pad}→ EXTRACTION LOGIC: {field_extraction_logic}"
+
+        if field_description:
+            field_line += f"\n{cont_pad}→ Description: {field_description}"
+
+        sections.append(field_line)
 
     @staticmethod
     def _build_intact_auto_json_format_requirements() -> str:
@@ -235,6 +256,7 @@ class IntactJSONGenerator:
 - JSON must be syntactically valid: include commas between array/object elements and use double quotes for keys/strings.
 - For sections configured as arrays (for example `risk` in Intact Auto), ALWAYS output an array `[]`.
 - If multiple vehicles/risks are found, include ALL of them in `risk` as separate array elements in the same order as the source document.
+- Inside each `risk` element, `interest` MUST be a JSON object with sub-keys such as `has_loan`, and when `has_loan` is `Yes` also `type_of_interest`, `company_name`, and `address`. Never replace `interest` with one string that merges bank name and address.
 
 """
 
