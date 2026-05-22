@@ -81,7 +81,8 @@
 | `has_loan` | string | radio | ❌ | 是否有贷款（Yes, No） |
 | `type_of_interest` | string | dropdown | ✅ | 利息类型（Lessor, Lienholder） |
 | `company_name` | string | dropdown | ✅ | 公司名称（从企业列表中选择，共34个选项） |
-| `address` | string | free_text | ✅ | Lienholder/Lessor 完整地址（从 application 提取） |
+| `address` | string | free_text | ✅ | Lienholder/Lessor 完整地址（不含邮编） |
+| `postal_code` | string | free_text | ✅ | 邮编（加拿大 X9X9X9，跟在 address 之后单独填写） |
 
 ---
 
@@ -148,7 +149,7 @@
 | 字段名 | 类型 | 模式 | 必填 | 描述 |
 |--------|------|------|------|------|
 | `limit` | number | free_text | ✅ | 限额金额（货币） |
-| `accident_benefits_standard_benefits` | array | dropdown | ❌ | 意外保险标准福利（多选，共7个选项） |
+| `additional_coverages` | array | free_text | ✅ | Quote 保障表每一行 + DIS 折扣每一行（TOTALS 为 0 的表行除外） |
 | `dcpd_deductible` | number | dropdown | ✅ | DCPD免赔额（0, 300, 500） |
 | `all_perils_or_collision_or_upset` | string | dropdown | ❌ | 全险或碰撞或翻车（Collision or Upset, All Perils） |
 | `all_perils_or_collision_or_upset_deductible` | number | free_text | ❌ | 全险或碰撞或翻车免赔额 |
@@ -157,7 +158,6 @@
 | `responsible_driver_guarantee` | string | radio | ✅ | 负责任的驾驶员保证（Yes, No） |
 | `claims_advantage` | string | radio | ✅ | 理赔优势（Yes, No） |
 | `opcf_44r_family_protection_endorsement` | string | radio | ✅ | OPCF 44R - 家庭保护批单（Yes, No） |
-| `section_optional_coverages` | array | dropdown | ❌ | 部分可选保险（多选，共15个选项） |
 
 ---
 
@@ -205,7 +205,7 @@
 ### array（数组）
 - 多选字段
 - 可选择一个或多个选项
-- 目前用于：`accident_benefits_standard_benefits` 和 `section_optional_coverages`
+- 目前用于：`additional_coverages`（所有可选/额外保险条目）
 
 ---
 
@@ -217,5 +217,5 @@
    - DD-MM-YYYY：`policy_effective_date`, `g_class_date_licensed`, `expiry_date` 等
    - YYYY-MM：`insured_without_interruption_since`
 3. **必填字段**：标记为 `required: true` 的字段必须提供值
-4. **多选字段**：`accident_benefits_standard_benefits` 和 `section_optional_coverages` 支持多选
+4. **保险数组**：`additional_coverages` 须覆盖 Quote 保障表与 DIS 折扣的每一行；表行 TOTALS 为 0 时不写入
 5. **大型下拉菜单**：`previous_insurer` 和 `company_name` 包含大量选项，需要精确匹配

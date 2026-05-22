@@ -693,6 +693,57 @@ def test_intact_auto_claim_total_amount_paid_removes_trailing_zero_decimals():
     assert cleaned["claim"]["total_amount_paid"] == ["3203", "1250", "0"]
 
 
+def test_intact_auto_additional_coverages_merges_legacy_arrays_and_drops_zero_values():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "coverages": {
+            "additional_coverages": ["Uninsured Automobile: 200000"],
+            "section_optional_coverages": [
+                "OPCF 20 - Coverage for Transportation Replacement: 50000",
+                "Roadside Assistance: 0",
+            ],
+            "accident_benefits_standard_benefits": [
+                "Increased AB - Income Replacement: 0",
+                "Increased AB - Death & Funeral",
+            ],
+        }
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+    coverages = cleaned["coverages"]
+
+    assert "section_optional_coverages" not in coverages
+    assert "accident_benefits_standard_benefits" not in coverages
+    assert coverages["additional_coverages"] == [
+        "Uninsured Automobile: 200000",
+        "OPCF 20 - Coverage for Transportation Replacement: 50000",
+        "Increased AB - Death & Funeral",
+    ]
+
+
+def test_intact_auto_additional_coverages_keeps_direct_compensation_without_zero_suffix():
+    """Quote rows with deductible 0 but non-zero TOTALS stay as name-only (no ': 0')."""
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "coverages": {
+            "additional_coverages": [
+                "Bodily Injury / Prop. Damage: 1000000",
+                "Direct Compensation",
+                "Direct Compensation: 0",
+                "All Perils: 1000",
+            ]
+        }
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert cleaned["coverages"]["additional_coverages"] == [
+        "Bodily Injury / Prop. Damage: 1000000",
+        "Direct Compensation",
+        "All Perils: 1000",
+    ]
+
+
 def test_intact_auto_multi_risk_assignment_moves_common_fields_into_each_vehicle():
     generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
     data = {
@@ -946,6 +997,21 @@ def test_caa_coapplicant_name_order_swaps_by_fullname_frequency_when_no_labels()
     assert cleaned["vehicles_information"]["V1"]["drivers"] == ["KAUR RAJVINDER (Occ)"]
 
 
+def test_intact_auto_premium_on_quote_is_last_root_section():
+    cfg = _load_json_config("intact_auto_fields_config.json")
+    keys = list(cfg["fields"].keys())
+    assert keys[-1] == "premium_on_quote"
+    poq = cfg["fields"]["premium_on_quote"]
+    assert poq.get("scalar_at_root") is True
+    assert "fields" not in poq
+
+
+def test_intact_normalize_flattens_premium_on_quote_total_wrapper():
+    data = {"application_info": {}, "premium_on_quote": {"total": "1,234.00"}}
+    IntactJSONGenerator._normalize_intact_structure(data)
+    assert data["premium_on_quote"] == "1,234.00"
+
+
 def test_intact_auto_fields_prompt_expands_risk_interest_object():
     """Nested config objects (e.g. risk.interest) must not be emitted as `interest: string` in the model prompt."""
     cfg = _load_json_config("intact_auto_fields_config.json")
@@ -957,6 +1023,7 @@ def test_intact_auto_fields_prompt_expands_risk_interest_object():
     assert "type_of_interest" in section
     assert "company_name" in section
     assert "address" in section
+    assert "postal_code" in section
 
 
 def test_get_required_top_level_fields_from_config():

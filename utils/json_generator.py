@@ -152,8 +152,18 @@ class IntactJSONGenerator:
             if section_data.get("description"):
                 sections.append(f"   {section_data['description']}")
             
+            # Root scalar: one string/number at top-level key == section name (no nested object)
+            if isinstance(section_data, dict) and section_data.get("scalar_at_root"):
+                leaf_info = {
+                    k: v
+                    for k, v in section_data.items()
+                    if k not in ("scalar_at_root", "required", "description", "fields")
+                }
+                leaf_info.setdefault("description", section_data.get("description", ""))
+                leaf_info.setdefault("required", section_data.get("required", False))
+                self._append_config_field_prompt(sections, section_name, leaf_info, 0)
             # Add fields (recurses into nested objects such as risk.interest)
-            if "fields" in section_data:
+            elif "fields" in section_data:
                 for field_name, field_info in section_data["fields"].items():
                     if isinstance(field_info, dict):
                         self._append_config_field_prompt(sections, field_name, field_info, 0)
@@ -256,7 +266,7 @@ class IntactJSONGenerator:
 - JSON must be syntactically valid: include commas between array/object elements and use double quotes for keys/strings.
 - For sections configured as arrays (for example `risk` in Intact Auto), ALWAYS output an array `[]`.
 - If multiple vehicles/risks are found, include ALL of them in `risk` as separate array elements in the same order as the source document.
-- Inside each `risk` element, `interest` MUST be a JSON object with sub-keys such as `has_loan`, and when `has_loan` is `Yes` also `type_of_interest`, `company_name`, and `address`. Never replace `interest` with one string that merges bank name and address.
+- Inside each `risk` element, `interest` MUST be a JSON object with sub-keys such as `has_loan`, and when `has_loan` is `Yes` also `type_of_interest`, `company_name`, `address`, and `postal_code`. Never replace `interest` with one string that merges bank name and address.
 
 """
 
@@ -1210,8 +1220,17 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         
         for field in required_fields:
             if field not in data:
-                print(f"[WARNING] Missing required field: {field}, adding empty object")
-                data[field] = {}
+                section_cfg = (
+                    self.fields_config.get("fields", {}).get(field)
+                    if isinstance(self.fields_config.get("fields"), dict)
+                    else None
+                )
+                if isinstance(section_cfg, dict) and section_cfg.get("scalar_at_root"):
+                    print(f"[WARNING] Missing required field: {field}, adding null")
+                    data[field] = None
+                else:
+                    print(f"[WARNING] Missing required field: {field}, adding empty object")
+                    data[field] = {}
         
         # Ensure nested structure is correct
         if "drivers_information" in data and not isinstance(data["drivers_information"], dict):
@@ -1463,6 +1482,14 @@ The overall JSON structure, section names, and nesting MUST follow this example 
 
         if "application_info" not in data or not isinstance(data.get("application_info"), dict):
             data["application_info"] = {}
+
+        poq = data.get("premium_on_quote")
+        if isinstance(poq, dict) and len(poq) == 1:
+            sole_key, sole_val = next(iter(poq.items()))
+            if sole_key in ("total", "amount", "value") and (
+                sole_val is None or isinstance(sole_val, (str, int, float))
+            ):
+                data["premium_on_quote"] = sole_val
 
         legacy_interest = data.pop("interest", None)
         risks = data.get("risk")

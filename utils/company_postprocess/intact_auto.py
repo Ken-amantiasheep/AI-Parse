@@ -485,6 +485,76 @@ def _compute_consent_date_for_driver(
     return None
 
 
+_COVERAGE_LEGACY_ARRAY_KEYS = (
+    "section_optional_coverages",
+    "accident_benefits_standard_benefits",
+)
+
+
+def _coverage_entry_has_zero_value(entry) -> bool:
+    """True if 'Name: 0' style entry should be dropped."""
+    if not isinstance(entry, str):
+        return False
+    text = entry.strip()
+    if not text:
+        return True
+    if ":" not in text:
+        return False
+    _, _, value_part = text.partition(":")
+    value_text = value_part.strip().replace(",", "").replace("$", "")
+    if not value_text:
+        return False
+    try:
+        return float(value_text) == 0.0
+    except ValueError:
+        return value_text in {"0", "0.0", "0.00"}
+
+
+def _normalize_intact_additional_coverages(data: Dict) -> Dict:
+    """
+    Consolidate legacy coverage arrays into coverages.additional_coverages and
+    drop entries whose numeric suffix is zero.
+    """
+    if not isinstance(data, dict):
+        return data
+
+    coverages = data.get("coverages")
+    if not isinstance(coverages, dict):
+        return data
+
+    merged = []
+    seen = set()
+    for key in ("additional_coverages",) + _COVERAGE_LEGACY_ARRAY_KEYS:
+        items = coverages.get(key)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if not text or _coverage_entry_has_zero_value(text):
+                continue
+            if text not in seen:
+                seen.add(text)
+                merged.append(text)
+
+    for legacy_key in _COVERAGE_LEGACY_ARRAY_KEYS:
+        coverages.pop(legacy_key, None)
+
+    if merged:
+        coverages["additional_coverages"] = merged
+    elif "additional_coverages" in coverages and isinstance(coverages["additional_coverages"], list):
+        coverages["additional_coverages"] = [
+            str(x).strip()
+            for x in coverages["additional_coverages"]
+            if x is not None
+            and str(x).strip()
+            and not _coverage_entry_has_zero_value(str(x).strip())
+        ]
+
+    return data
+
+
 def _normalize_intact_claim_total_amount_paid(data: Dict) -> Dict:
     """
     Intact claim.total_amount_paid should always be integer-like string.
@@ -636,4 +706,5 @@ def apply(generator, data: Dict, documents: Optional[Dict[str, str]] = None) -> 
     data = _normalize_multi_risk_assignment(data, documents)
     data = _promote_additional_driver_identity_blocks(data)
     data = _normalize_intact_claim_total_amount_paid(data)
+    data = _normalize_intact_additional_coverages(data)
     return generator._normalize_intact_structure(data)

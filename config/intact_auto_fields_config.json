@@ -183,7 +183,7 @@
               "type": "string",
               "mode": "radio",
               "required": true,
-              "extraction_logic": "For THIS specific vehicle, extract from documents whether it has a loan, interest, finance, or lease. IMPORTANT: If this field is 'No', then all other fields in this vehicle's `interest` object (type_of_interest, company_name, address) must NOT be included in the output JSON.",
+              "extraction_logic": "For THIS specific vehicle, extract from documents whether it has a loan, interest, finance, or lease. IMPORTANT: If this field is 'No', then all other fields in this vehicle's `interest` object (type_of_interest, company_name, address, postal_code) must NOT be included in the output JSON.",
               "description": "Whether this vehicle has a loan or interest or finance or lease",
               "options": ["Yes", "No"]
             },
@@ -207,8 +207,15 @@
               "type": "string",
               "mode": "free_text",
               "required": true,
-              "extraction_logic": "For THIS vehicle, extract the complete lienholder/lessor postal address from the application form's 'Lienholder Name & Postal Address' section (or equivalent for this vehicle). Capture the FULL address text exactly as shown in the application after the company name, including PO Box / street, station, city, province, and postal code (e.g., 'PO Box 1833 Station M Calgary AB T2P 2L8'). Do NOT include the company name itself in this field. Only include this field if has_loan is 'Yes'.",
-              "description": "Full postal address of the lienholder/lessor as shown in the application"
+              "extraction_logic": "For THIS vehicle, extract the complete lienholder/lessor postal address from the application form's 'Lienholder Name & Postal Address' section (or equivalent for this vehicle). Capture the FULL address text exactly as shown after the company name—PO Box / street, station, city, and province (e.g., 'PO Box 1833 Station M Calgary AB'). Do NOT include the company name. Do NOT include the postal code in this field (put it in interest.postal_code). Only include this field if has_loan is 'Yes'.",
+              "description": "Full postal address of the lienholder/lessor (without postal code)"
+            },
+            "postal_code": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "For THIS vehicle, extract the Canadian postal code from the lienholder/lessor address line (format X9X9X9, e.g., 'T2P 2L8' → 'T2P2L8' or keep as printed). If the application shows the code at the end of the address line, copy it here. Only include this field if has_loan is 'Yes'.",
+              "description": "Lienholder/lessor postal code (Canadian format), separate from address"
             }
           }
         }
@@ -645,17 +652,8 @@
           "type": "array",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract coverages and their corresponding limit values from the quote document that are NOT already included in the claim section's coverage field. For each coverage found, output the coverage name and its limit value (e.g., 'Coverage Name: Value'). Exclude coverages that are already recorded in claim.coverage. IMPORTANT: Exclude 'Property Damage' (it is already represented by the 'limit' field and has the same value). Also exclude 'All Perils' (it is already displayed in the 'all_perils_or_collision_or_upset' field).",
-          "description": "Array of coverages and their limit values that are not included in the claim section. Excludes Property Damage (same as limit) and All Perils (already in all_perils_or_collision_or_upset field)."
-        },
-        "accident_benefits_standard_benefits": {
-          "type": "array",
-          "mode": "dropdown",
-          "required": true,
-          "multiple": true,
-          "extraction_logic": "Scan the quote document to identify which options are selected. Use fuzzy matching - if the document mentions something that is semantically the same as an option (even if the wording is slightly different), select that option. When a coverage option is found, also check if there is a numerical value following it (e.g., '50K' = 50000, '1M' = 1000000). If a value is found, output the option name followed by the value in the format 'Option Name: Value' (e.g., 'Increased AB - Income Replacement: 50000'). Convert abbreviations: K = thousands (50K = 50000), M = millions (1M = 1000000).",
-          "description": "Accident Benefits (Standard Benefits) optional coverage - can select multiple options. If a coverage has an associated limit value in the quote, include it in the format 'Option Name: Value'. Use fuzzy matching to identify similar coverage names.",
-          "options": ["Increased AB - Income Replacement", "Increased AB - Caregiver, Housekeeping & Home Maintenance", "Increased AB - Medical, Rehabilitation and Attendant Care", "Increased AB - Catastrophic Impairment $1,000,000", "Increased AB - Death & Funeral", "Increased AB - Dependant Care", "Increased AB - Indexation Benefits"]
+          "extraction_logic": "Mirror the Intact Quote line-by-line in this array. MANDATORY sources: (1) the main coverage/premium table (each row under coverages such as Bodily Injury / Prop. Damage, Property Damage, Direct Compensation, Accident Benefits, All Perils, Uninsured Automobile, #20 Loss of Use, #23a Lienholder Protection, #44 Family Protection, Service Fee, and any other rows on that table); (2) the DIS (discounts) sidebar/list (e.g. 'Discount - Winter Tire included', 'Discount - Hybrid and Electric Vehicle included', 'Discount - Graduated License Holder included'). Output ONE array element per quote row — do not skip a table row just because it is also filled in coverages.limit, dcpd_deductible, all_perils_or_collision_or_upset, or other dedicated fields; those fields AND this array must both reflect the quote. Use the coverage description text exactly as printed on the quote (normalize #20 to match quote wording). For the limit/deductible column (middle column, NOT PRIN./TOTALS premium): if it shows a non-zero limit/deductible, use 'Name: Value' and convert 1M/1 m = 1000000, 1K = 1000, etc.; if the limit/deductible column is blank or 'Inc.' but TOTALS premium is non-zero, output the name alone. SKIP a table row ONLY when the quote TOTALS column for that row is 0, blank premium, or clearly no charge (e.g. Property Damage with TOTALS 0, Uninsured Automobile TOTALS 0, Service Fee 0) — do not skip just because the limit/deductible is 0 when TOTALS is non-zero (e.g. Direct Compensation with deductible 0 and TOTALS 1041 → include 'Direct Compensation' without ': 0'). Always include every DIS discount bullet as its own entry (name only). Do NOT use section_optional_coverages or accident_benefits_standard_benefits. Never put premium dollars in this array — only coverage name and limit/deductible when non-zero.",
+          "description": "Every Quote coverage table row (except TOTALS=0) plus every DIS discount line — one element per row. Name: limit when non-zero; discounts as name only."
         },
         "dcpd_deductible": {
           "type": "number",
@@ -710,15 +708,6 @@
           "required": true,
           "description": "OPCF 44R - Family Protection Endorsement",
           "options": ["Yes", "No"]
-        },
-        "section_optional_coverages": {
-          "type": "array",
-          "mode": "dropdown",
-          "required": true,
-          "multiple": true,
-          "extraction_logic": "Scan the quote document to identify which options are selected. Use fuzzy matching - if the document mentions something that is semantically the same as an option (even if the wording is slightly different), select that option. When a coverage option is found, also check if there is a numerical value following it (e.g., '#27 Liab to Unowned Veh. 50K' should record 'Liab to Unowned Veh.: 50000'). If a value is found, output the option name followed by the value in the format 'Option Name: Value' (e.g., 'OPCF 20 - Coverage for Transportation Replacement: 50000'). Convert abbreviations: K = thousands (50K = 50000), M = millions (1M = 1000000).",
-          "description": "Section optional coverages - can select multiple options. If a coverage has an associated limit value in the quote, include it in the format 'Option Name: Value'. Use fuzzy matching to identify similar coverage names.",
-          "options": ["Minor Conviction Protection - Principal", "OPCF 20 - Coverage for Transportation Replacement", "OPCF 13C - Restricting Glass Coverage", "OPCF 16 - Suspension of Coverage", "OPCF 28A - Excluded Driver", "Agreed Value Plus Endorsement", "OPCF 6A - Permission to Carry Paying Passengers", "OPCF 40 - Fire Deductible", "Roadside Assistance", "OPCF 31 - Non-owned Equipment", "OPCF 48 - Added Coverage to Offset Tort Deductibles", "OPCF 2 - Drive, Rent or Lease other Automobiles", "OPCF 3 - Drive Government Automobiles", "OPCF 8 - Property Damage Reimbursement", "OPCF 28 - Reducing Coverage for Named Persons"]
         }
       }
     },
@@ -763,6 +752,14 @@
           "options": ["Yes", "No"]
         }
       }
+    },
+    "premium_on_quote": {
+      "required": true,
+      "scalar_at_root": true,
+      "description": "Premium on quote — final total automobile policy premium as printed on the Quote document.",
+      "type": "string",
+      "mode": "free_text",
+      "extraction_logic": "Use ONLY the Quote document (ignore Application, MVR, AutoPlus for this value). Find the final policy premium the insured pays — the bottom-line total on the quote summary, often labeled 'Total Premium', 'Annual Premium', 'Total Policy Premium', 'Premium', 'Total', or similar on the last premium/payment summary section. If the quote shows per-vehicle premiums and a policy-level grand total, use the grand total. If only one clear total appears, use that. Preserve the value as printed (digits; $ and commas optional if shown). Do not substitute per-coverage line amounts. If no total can be identified on the quote, output null. IMPORTANT: emit this value as a single JSON string at the root key `premium_on_quote` only — do NOT nest it inside an object (no `total` or other wrapper)."
     }
   }
 }
