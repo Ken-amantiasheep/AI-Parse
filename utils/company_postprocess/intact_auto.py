@@ -17,7 +17,8 @@ _DRIVER_IDENTITY_KEYS = (
     "date_of_birth",
     "marital_status",
 )
-_DRIVER_ADDRESS_KEYS = ("postal_code", "full_address")
+_APPLICANT_ADDRESS_KEYS = ("postal_code", "full_address")
+_DRIVER_ADDRESS_KEYS = _APPLICANT_ADDRESS_KEYS
 _ASSIGNMENT_COMMON_KEYS = (
     "type_of_use",
     "km_toward_work",
@@ -29,10 +30,54 @@ _ASSIGNMENT_COMMON_KEYS = (
 )
 
 
+def _merge_root_address_into_applicant_information(data: Dict) -> Dict:
+    """Hoist legacy root `address` (and phone/email if nested there) into applicant_information."""
+    if not isinstance(data, dict):
+        return data
+
+    legacy_address = data.pop("address", None)
+    if not isinstance(legacy_address, dict) or not legacy_address:
+        return data
+
+    applicant = data.get("applicant_information")
+    if not isinstance(applicant, dict):
+        applicant = {}
+        data["applicant_information"] = applicant
+
+    for key in _APPLICANT_ADDRESS_KEYS + ("phone", "email"):
+        value = legacy_address.get(key)
+        if not _is_missing(value) and _is_missing(applicant.get(key)):
+            applicant[key] = value
+
+    _normalize_applicant_phone(applicant)
+    return data
+
+
+def _normalize_applicant_phone(applicant: Dict) -> None:
+    """Strip phone to digits only (no hyphens, spaces, or other separators)."""
+    if not isinstance(applicant, dict):
+        return
+    phone = applicant.get("phone")
+    if _is_missing(phone):
+        return
+    digits = re.sub(r"\D", "", str(phone))
+    if digits:
+        applicant["phone"] = digits
+
+
+def _normalize_intact_applicant_information(data: Dict) -> Dict:
+    if not isinstance(data, dict):
+        return data
+    applicant = data.get("applicant_information")
+    if isinstance(applicant, dict):
+        _normalize_applicant_phone(applicant)
+    return data
+
+
 def _promote_additional_driver_identity_blocks(data: Dict) -> Dict:
     """
     For Intact Auto, second and subsequent drivers get root-level blocks matching
-    applicant_information + address shape: driver_2_information, driver_2_address, etc.
+    applicant_information shape: driver_2_information, driver_2_address, etc.
     Values are taken from the corresponding driver[] element, then those keys are removed
     from the driver object. The first driver must not carry these staging keys.
     """
@@ -43,7 +88,7 @@ def _promote_additional_driver_identity_blocks(data: Dict) -> Dict:
     if not isinstance(drivers, list):
         return data
 
-    root_address = data.get("address") if isinstance(data.get("address"), dict) else {}
+    applicant = data.get("applicant_information") if isinstance(data.get("applicant_information"), dict) else {}
 
     # Strip staging keys from first driver if the model duplicated them.
     if drivers and isinstance(drivers[0], dict):
@@ -70,10 +115,10 @@ def _promote_additional_driver_identity_blocks(data: Dict) -> Dict:
             if not _is_missing(v):
                 addr[k] = v
 
-        if not addr.get("postal_code") and not _is_missing(root_address.get("postal_code")):
-            addr["postal_code"] = root_address["postal_code"]
-        if not addr.get("full_address") and not _is_missing(root_address.get("full_address")):
-            addr["full_address"] = root_address["full_address"]
+        if not addr.get("postal_code") and not _is_missing(applicant.get("postal_code")):
+            addr["postal_code"] = applicant["postal_code"]
+        if not addr.get("full_address") and not _is_missing(applicant.get("full_address")):
+            addr["full_address"] = applicant["full_address"]
 
         if info:
             data[info_key] = info
@@ -90,6 +135,52 @@ def _promote_additional_driver_identity_blocks(data: Dict) -> Dict:
             data.pop(f"driver_{n}_address", None)
 
     return data
+
+
+def _get_quote_document_text(documents: Optional[Dict[str, str]]) -> Optional[str]:
+    if not isinstance(documents, dict):
+        return None
+    for key, value in documents.items():
+        if isinstance(key, str) and key.strip().lower() == "quote" and isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _extract_brokerage_insured_date_from_quote(documents: Optional[Dict[str, str]]) -> Optional[str]:
+    """
+    Return raw date text from Quote 'Brokerage Insured' when present; None if blank or missing.
+    """
+    quote = _get_quote_document_text(documents)
+    if not quote:
+        return None
+
+    match = re.search(
+        r"Brokerage\s+Insured\b\s*:?\s*([^\n\r]{0,60})",
+        quote,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    tail = match.group(1).strip()
+    if not tail:
+        return None
+
+    date_match = re.search(
+        r"(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+        tail,
+    )
+    if date_match:
+        return date_match.group(1)
+
+    # Date may appear on the next line after the label.
+    start = match.end()
+    window = quote[start : start + 80]
+    date_match = re.search(
+        r"(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+        window,
+    )
+    return date_match.group(1) if date_match else None
 
 
 def _extract_broker_number_from_documents(documents: Optional[Dict[str, str]]) -> Optional[str]:
@@ -605,13 +696,18 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
 
     insureds = data.get("insureds")
     if isinstance(insureds, dict):
-        if _is_missing(insureds.get("insured_with_broker_since")) and not _is_missing(effective_date_full):
+        quote_brokerage_date = _extract_brokerage_insured_date_from_quote(documents)
+        quote_brokerage_date_full = _to_full_date(generator, quote_brokerage_date)
+        if quote_brokerage_date_full is not None:
+            insureds["insured_with_broker_since"] = quote_brokerage_date_full
+            print(f"[INFO] Set insured_with_broker_since from Quote Brokerage Insured: {quote_brokerage_date_full}")
+        elif not _is_missing(effective_date_full):
             insureds["insured_with_broker_since"] = effective_date_full
-            print("[INFO] Filled insured_with_broker_since from policy_effective_date")
-
-        insured_with_broker_since = _to_full_date(generator, insureds.get("insured_with_broker_since"))
-        if insured_with_broker_since is not None:
-            insureds["insured_with_broker_since"] = insured_with_broker_since
+            print("[INFO] Filled insured_with_broker_since from policy_effective_date (Brokerage Insured empty on Quote)")
+        else:
+            insured_with_broker_since = _to_full_date(generator, insureds.get("insured_with_broker_since"))
+            if insured_with_broker_since is not None:
+                insureds["insured_with_broker_since"] = insured_with_broker_since
 
     drivers = data.get("driver")
     applicant_info = data.get("applicant_information") if isinstance(data.get("applicant_information"), dict) else None
@@ -704,6 +800,8 @@ def apply(generator, data: Dict, documents: Optional[Dict[str, str]] = None) -> 
     data = generator._remove_non_intact_membership_fields(data)
     data = _apply_intact_defaults(generator, data, documents)
     data = _normalize_multi_risk_assignment(data, documents)
+    data = _merge_root_address_into_applicant_information(data)
+    data = _normalize_intact_applicant_information(data)
     data = _promote_additional_driver_identity_blocks(data)
     data = _normalize_intact_claim_total_amount_paid(data)
     data = _normalize_intact_additional_coverages(data)

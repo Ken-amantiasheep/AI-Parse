@@ -1204,7 +1204,6 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         # Ensure required fields exist
         legacy_required_fields = [
             "applicant_information",
-            "address",
             "application_info",
             "drivers_information",
             "vehicles_information"

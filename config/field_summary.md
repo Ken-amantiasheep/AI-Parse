@@ -1,7 +1,7 @@
 # Intact Insurance JSON 输出格式 - 字段清单
 
 ## 字段统计
-- **主要部分（Sections）**: 11个
+- **主要部分（Sections）**: 10个
 - **总字段数**: 约70个字段
 - **字段类型分布**:
   - `free_text`: 自由文本输入
@@ -24,20 +24,14 @@
 | `date_of_birth` | string | date | ✅ | 出生日期（YYYY-MM-DD） |
 | `language` | string | dropdown | ✅ | 首选语言（English, French） |
 | `marital_status` | string | dropdown | ❌ | 婚姻状况（Divorced, Married, Single, Widow） |
+| `postal_code` | string | free_text | ✅ | 邮政编码（加拿大格式 X9X9X9） |
+| `full_address` | string | free_text | ✅ | 完整地址（如：511-5 Massey Sq, East York, ON，不含邮编） |
+| `phone` | string | free_text | ✅ | 申请人电话（仅数字，无连字符） |
+| `email` | string | free_text | ✅ | 申请人邮箱 |
 
 ---
 
-## 2. address（地址信息）
-**必填**: ✅
-
-| 字段名 | 类型 | 模式 | 必填 | 描述 |
-|--------|------|------|------|------|
-| `postal_code` | string | free_text | ❌ | 邮政编码（加拿大格式） |
-| `full_address` | string | free_text | ✅ | 完整地址（如：164 Hawthorn Ave, Stouffville, ON） |
-
----
-
-## 3. broker_information（经纪人信息）
+## 2. broker_information（经纪人信息）
 **必填**: ✅
 
 | 字段名 | 类型 | 模式 | 必填 | 描述 |
@@ -47,7 +41,7 @@
 
 ---
 
-## 4. term（期限信息）
+## 3. term（期限信息）
 **必填**: ✅
 
 | 字段名 | 类型 | 模式 | 必填 | 描述 |
@@ -56,7 +50,7 @@
 
 ---
 
-## 5. risk（风险信息）
+## 4. risk（风险信息）
 **必填**: ✅
 
 | 字段名 | 类型 | 模式 | 必填 | 描述 |
@@ -73,7 +67,7 @@
 
 ---
 
-## 6. interest（利息/融资信息）
+## 5. interest（利息/融资信息）
 **必填**: ✅
 
 | 字段名 | 类型 | 模式 | 必填 | 描述 |
@@ -86,7 +80,7 @@
 
 ---
 
-## 7. driver（驾驶员信息）
+## 6. driver（驾驶员信息）
 **必填**: ✅
 
 | 字段名 | 类型 | 模式 | 必填 | 描述 |
@@ -113,7 +107,7 @@
 
 ---
 
-## 8. assignment（用途信息）
+## 7. assignment（用途信息）
 **必填**: ✅
 
 | 字段名 | 类型 | 模式 | 必填 | 描述 |
@@ -128,7 +122,7 @@
 
 ---
 
-## 9. claim（理赔信息）
+## 8. claim（理赔信息）
 **必填**: ✅
 
 | 字段名 | 类型 | 模式 | 必填 | 描述 |
@@ -143,7 +137,7 @@
 
 ---
 
-## 10. coverages（保险范围）
+## 9. coverages（保险范围）
 **必填**: ✅
 
 | 字段名 | 类型 | 模式 | 必填 | 描述 |
@@ -161,17 +155,18 @@
 
 ---
 
-## 11. insureds（被保险人信息）
+## 10. insureds（被保险人信息）
 **必填**: ✅
 
 | 字段名 | 类型 | 模式 | 必填 | 描述 |
 |--------|------|------|------|------|
 | `automobile_insurance_cancelled_or_refused_in_last_3_years` | string | radio | ✅ | 过去3年是否取消或拒绝汽车保险（Yes, No） |
+| `insured_with_broker_since` | string | date | ✅ | Insured With Broker Since（YYYY-MM-DD）；优先 Quote「Brokerage Insured」，为空则用 `term.policy_effective_date` |
 | `ubi_consent` | string | dropdown | ❌ | UBI同意（No, Not Requested, Yes） |
 
 ---
 
-## 12. additional_info（附加信息）
+## 11. additional_info（附加信息）
 **必填**: ✅
 
 | 字段名 | 类型 | 模式 | 必填 | 描述 |

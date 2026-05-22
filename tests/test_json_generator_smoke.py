@@ -178,6 +178,40 @@ def test_validate_and_clean_json_for_intact_fills_broker_and_insured_since_defau
     assert cleaned["insureds"]["insured_with_broker_since"] == "2026-03-19"
 
 
+def test_intact_insured_with_broker_since_uses_quote_brokerage_insured_date():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "term": {"policy_effective_date": "2026-04-22"},
+        "insureds": {},
+        "driver": [{"licence_class": "G"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "Quote": "Brokerage Insured  03/15/2020\nTotal Premium 1200",
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert cleaned["insureds"]["insured_with_broker_since"] == "2020-03-15"
+
+
+def test_intact_insured_with_broker_since_falls_back_to_effective_when_brokerage_insured_empty():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "term": {"policy_effective_date": "2026-04-22"},
+        "insureds": {"insured_with_broker_since": "2019-01-01"},
+        "driver": [{"licence_class": "G"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "Quote": "Brokerage Insured\nPolicy Effective 2026-04-22",
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert cleaned["insureds"]["insured_with_broker_since"] == "2026-04-22"
+
+
 def test_validate_and_clean_json_for_intact_sets_consent_date_to_earlier_mvr_vs_autoplus():
     fields_config = {
         "fields": {
@@ -583,7 +617,6 @@ def test_company_schema_validation_uses_fields_config_when_enabled():
         fields_config={
             "fields": {
                 "applicant_information": {"fields": {}},
-                "address": {"fields": {}},
                 "term": {"fields": {}},
             }
         },
@@ -591,9 +624,53 @@ def test_company_schema_validation_uses_fields_config_when_enabled():
     generator.use_company_schema_validation = True
     cleaned = generator._validate_and_clean_json({}, documents={})
     assert "applicant_information" in cleaned
-    assert "address" in cleaned
+    assert "address" not in cleaned
     assert "term" in cleaned
     assert "drivers_information" not in cleaned
+
+
+def test_intact_auto_normalizes_applicant_phone_to_digits_only():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {
+            "last_name": "Valdez",
+            "phone": "(416) 555-0100",
+        },
+        "driver": [{"licence_class": "G"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+    assert cleaned["applicant_information"]["phone"] == "4165550100"
+
+
+def test_intact_auto_merges_legacy_root_address_into_applicant_information():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {
+            "last_name": "Valdez",
+            "first_name": "Julius Rafael",
+        },
+        "address": {
+            "postal_code": "M4C5L6",
+            "full_address": "511-5 Massey Sq, East York, ON",
+            "phone": "416-555-0100",
+            "email": "julius@example.com",
+        },
+        "driver": [{"licence_class": "G"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert "address" not in cleaned
+    app = cleaned["applicant_information"]
+    assert app["postal_code"] == "M4C5L6"
+    assert app["full_address"] == "511-5 Massey Sq, East York, ON"
+    assert app["phone"] == "4165550100"
+    assert app["email"] == "julius@example.com"
 
 
 def test_intact_auto_promotes_additional_driver_identity_blocks():
@@ -603,8 +680,6 @@ def test_intact_auto_promotes_additional_driver_identity_blocks():
         "applicant_information": {
             "last_name": "GU",
             "first_name": "MIN",
-        },
-        "address": {
             "postal_code": "L6C2C5",
             "full_address": "168 TRAIL RIDGE LANE, MARKHAM, ON",
         },
@@ -633,12 +708,11 @@ def test_intact_auto_promotes_additional_driver_identity_blocks():
     assert cleaned["driver_2_address"]["full_address"] == "1 Example St, Toronto, ON"
 
 
-def test_intact_auto_additional_driver_address_falls_back_to_root():
+def test_intact_auto_additional_driver_address_falls_back_to_applicant():
     generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
     data = {
         "application_info": {},
-        "applicant_information": {},
-        "address": {
+        "applicant_information": {
             "postal_code": "L6C2C5",
             "full_address": "168 TRAIL RIDGE LANE, MARKHAM, ON",
         },
@@ -1012,11 +1086,21 @@ def test_intact_normalize_flattens_premium_on_quote_total_wrapper():
     assert data["premium_on_quote"] == "1,234.00"
 
 
+def test_intact_auto_applicant_information_includes_contact_and_address_fields():
+    cfg = _load_json_config("intact_auto_fields_config.json")
+    assert "address" not in cfg["fields"]
+    app_fields = cfg["fields"]["applicant_information"]["fields"]
+    for key in ("postal_code", "full_address", "phone", "email"):
+        assert key in app_fields
+
+
 def test_intact_auto_fields_prompt_expands_risk_interest_object():
     """Nested config objects (e.g. risk.interest) must not be emitted as `interest: string` in the model prompt."""
     cfg = _load_json_config("intact_auto_fields_config.json")
     generator = _make_generator("Intact_Auto", fields_config=cfg)
     section = generator._build_fields_prompt_section(cfg)
+    assert "phone" in section
+    assert "email" in section
     assert "interest: object" in section
     assert "NEVER output `interest` as a single string" in section
     assert "has_loan" in section

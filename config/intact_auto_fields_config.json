@@ -42,24 +42,34 @@
           "extraction_logic": "Extract the applicant's marital status. Priority: first check application form, if not found check other documents. Must match one of the options: Divorced, Married, Single, or Widow.",
           "description": "Applicant's marital status",
           "options": ["Divorced", "Married", "Single", "Widow"]
-        }
-      }
-    },
-    "address": {
-      "required": true,
-      "description": "Applicant's address information",
-      "fields": {
+        },
         "postal_code": {
           "type": "string",
           "mode": "free_text",
           "required": true,
-          "description": "Postal code in Canadian format X9X9X9"
+          "extraction_logic": "Extract the applicant's postal code from the application (Canadian format X9X9X9, e.g. 'M4C 5L6' or 'M4C5L6').",
+          "description": "Applicant postal code in Canadian format X9X9X9"
         },
         "full_address": {
           "type": "string",
           "mode": "free_text",
           "required": true,
-          "description": "Full address information in format like '164 Hawthorn Ave, Stouffville, ON'"
+          "extraction_logic": "Extract the applicant's full mailing address from the application (street/unit, city, province) without postal code, e.g. '511-5 Massey Sq, East York, ON'.",
+          "description": "Applicant full address (street, city, province — no postal code)"
+        },
+        "phone": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the applicant's primary telephone number from the application (home, cell, or main contact). Output digits only — no hyphens, spaces, parentheses, or other separators (e.g. '4165550100' not '416-555-0100').",
+          "description": "Applicant primary phone number (digits only, no separators)"
+        },
+        "email": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the applicant's email address from the application. Use the address exactly as printed.",
+          "description": "Applicant email address"
         }
       }
     },
@@ -225,7 +235,7 @@
       "required": true,
       "description": "Driver information - array of drivers. Extract ALL drivers found in documents. Each element represents one driver.",
       "type": "array",
-      "extraction_logic": "Extract ALL drivers found in the documents. Each driver should be a separate element in the array. If only one driver is found, the array should contain one element. Each driver element should contain all the driver fields for that specific driver. IMPORTANT for identity fields (last_name, first_name, gender, date_of_birth, marital_status, postal_code, full_address): include them ONLY for the second, third, fourth, ... driver (array index 1, 2, 3, ...). For the FIRST driver (index 0), OMIT these seven fields—they duplicate applicant_information and address at the root. For each additional driver, fill these with THAT driver's personal details and address from the policy; if the driver shares the same household as the applicant, you may use the same postal_code and full_address as root address.",
+      "extraction_logic": "Extract ALL drivers found in the documents. Each driver should be a separate element in the array. If only one driver is found, the array should contain one element. Each driver element should contain all the driver fields for that specific driver. IMPORTANT for identity fields (last_name, first_name, gender, date_of_birth, marital_status, postal_code, full_address): include them ONLY for the second, third, fourth, ... driver (array index 1, 2, 3, ...). For the FIRST driver (index 0), OMIT these seven fields—they duplicate applicant_information at the root. For each additional driver, fill these with THAT driver's personal details and address from the policy; if the driver shares the same household as the applicant, you may use the same postal_code and full_address as applicant_information.",
       "fields": {
         "last_name": {
           "type": "string",
@@ -268,14 +278,14 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "For drivers at index 1+ only: this driver's postal code (Canadian X9X9X9). If same household as applicant, repeat root address.postal_code. Omit on the first driver (index 0).",
+          "extraction_logic": "For drivers at index 1+ only: this driver's postal code (Canadian X9X9X9). If same household as applicant, repeat applicant_information.postal_code. Omit on the first driver (index 0).",
           "description": "Additional driver's postal code"
         },
         "full_address": {
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "For drivers at index 1+ only: full address like '168 Trail Ridge Lane, Markham, ON'. If same household, repeat root address.full_address. Omit on the first driver (index 0).",
+          "extraction_logic": "For drivers at index 1+ only: full address like '168 Trail Ridge Lane, Markham, ON'. If same household, repeat applicant_information.full_address. Omit on the first driver (index 0).",
           "description": "Additional driver's full address"
         },
         "student": {
@@ -727,7 +737,8 @@
           "type": "string",
           "mode": "date",
           "required": true,
-          "description": "Insured With Broker Since in YYYY-MM-DD format"
+          "extraction_logic": "Use the Quote document only. Find the label 'Brokerage Insured' (often italic, near the quote header/summary). If a date is printed next to or on the line after that label, extract it and output YYYY-MM-DD. If the Brokerage Insured value is blank/empty (label present but no date), use term.policy_effective_date as insured_with_broker_since. Do not invent a date from Application or MVR when Quote shows Brokerage Insured empty.",
+          "description": "Insured With Broker Since (YYYY-MM-DD) — Quote Brokerage Insured date, or policy_effective_date when Quote field is empty"
         },
         "ubi_consent": {
           "type": "string",
