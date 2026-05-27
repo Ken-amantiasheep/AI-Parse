@@ -1276,14 +1276,30 @@ The overall JSON structure, section names, and nesting MUST follow this example 
             return "YYYY-MM-DD"
         desc = field_info.get("description", "") or ""
         logic = field_info.get("extraction_logic", "") or ""
+        desc_upper = desc.upper()
         hints = f"{desc} {logic}".upper()
 
         if field_name == "effective_date":
             return "YYYY-MM-DD"
         if "ONLY DATE FIELD THAT USES YYYY-MM-DD" in logic.upper():
             return "YYYY-MM-DD"
-        if "ONLY FIELD USING THIS FORMAT" in hints and "YYYY-MM-DD" in desc.upper():
+        if "ONLY FIELD USING THIS FORMAT" in hints and "YYYY-MM-DD" in desc_upper:
             return "YYYY-MM-DD"
+
+        # The field's CANONICAL target format is declared in its description as
+        # "... in <FORMAT> format" / "... <FORMAT> format". The extraction_logic may
+        # additionally mention OTHER formats as SOURCE-format hints (e.g. "source prints
+        # MM/DD/YYYY ..."), which must NOT be confused with the target. Match the
+        # description's explicit "<FORMAT> FORMAT" marker first; only fall back to the
+        # broader hint scan when the description has no explicit declaration.
+        if "YYYY-MM-DD FORMAT" in desc_upper:
+            return "YYYY-MM-DD"
+        if "YYYY-MM FORMAT" in desc_upper:
+            return "YYYY-MM"
+        if "MM/DD/YYYY FORMAT" in desc_upper:
+            return "MM/DD/YYYY"
+        if "DD-MM-YYYY FORMAT" in desc_upper:
+            return "DD-MM-YYYY"
 
         if "YYYY-MM FORMAT" in hints or "FORMAT: YYYY-MM" in hints:
             return "YYYY-MM"

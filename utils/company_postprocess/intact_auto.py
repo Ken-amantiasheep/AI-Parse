@@ -576,6 +576,97 @@ def _compute_consent_date_for_driver(
     return None
 
 
+_LAPSE_ARRAY_FIELDS = (
+    "lapse_in_insurance_description",
+    "lapse_start",
+    "lapse_end",
+)
+
+
+def _promote_lapse_fields_to_arrays(driver: Dict) -> None:
+    """
+    Lapse fields (description, start, end) are configured as parallel arrays so a single
+    driver may carry multiple lapses. Older model outputs (or back-compat upstream callers)
+    may still emit scalar strings; promote them to one-element arrays in place.
+
+    Also align the three arrays to the same length by right-padding shorter arrays with
+    None — this keeps index i aligned across description / start / end.
+    """
+    if not isinstance(driver, dict):
+        return
+
+    promoted = {}
+    for key in _LAPSE_ARRAY_FIELDS:
+        if key not in driver:
+            continue
+        value = driver[key]
+        if value is None:
+            promoted[key] = []
+        elif isinstance(value, list):
+            promoted[key] = value
+        else:
+            text = str(value).strip() if not isinstance(value, str) else value.strip()
+            promoted[key] = [value] if text else []
+        driver[key] = promoted[key]
+
+    if not promoted:
+        return
+
+    target_len = max((len(promoted[k]) for k in promoted), default=0)
+    if target_len == 0:
+        return
+    for key, arr in promoted.items():
+        if len(arr) < target_len:
+            arr.extend([None] * (target_len - len(arr)))
+            driver[key] = arr
+
+
+def _lapse_descriptions_iter(value):
+    """Yield lapse description strings whether the field is scalar or list."""
+    if value is None:
+        return
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, str):
+                yield item
+        return
+    if isinstance(value, str):
+        yield value
+
+
+def _strip_empty_trailing_lapses(driver: Dict) -> None:
+    """Drop trailing all-empty lapse rows so the arrays don't carry phantom entries."""
+    if not isinstance(driver, dict):
+        return
+    arrays = {k: driver.get(k) for k in _LAPSE_ARRAY_FIELDS if isinstance(driver.get(k), list)}
+    if not arrays:
+        return
+    target_len = min(len(arr) for arr in arrays.values())
+    if target_len == 0:
+        return
+
+    keep = target_len
+    for i in range(target_len - 1, -1, -1):
+        all_empty = True
+        for arr in arrays.values():
+            v = arr[i]
+            if v is None:
+                continue
+            if isinstance(v, str) and not v.strip():
+                continue
+            all_empty = False
+            break
+        if all_empty:
+            keep = i
+        else:
+            break
+
+    if keep == target_len:
+        return
+    for key, arr in arrays.items():
+        driver[key] = arr[:keep]
+
+
 _COVERAGE_LEGACY_ARRAY_KEYS = (
     "section_optional_coverages",
     "accident_benefits_standard_benefits",
@@ -753,11 +844,17 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
                 if driver_consent_date:
                     driver["Consent_Date"] = driver_consent_date
 
-            lapse_desc = driver.get("lapse_in_insurance_description")
+            if driver.get("lapse_in_insurance") == "Yes":
+                _promote_lapse_fields_to_arrays(driver)
+                _strip_empty_trailing_lapses(driver)
+
+            has_no_auto_lapse = any(
+                isinstance(desc, str) and desc.strip().lower() == "no automobile"
+                for desc in _lapse_descriptions_iter(driver.get("lapse_in_insurance_description"))
+            )
             if (
                 driver.get("lapse_in_insurance") == "Yes"
-                and isinstance(lapse_desc, str)
-                and lapse_desc.strip().lower() == "no automobile"
+                and has_no_auto_lapse
                 and _is_missing(driver.get("expiry_date"))
                 and not _is_missing(effective_date)
             ):

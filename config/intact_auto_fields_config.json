@@ -10,14 +10,14 @@
           "type": "string",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract the applicant's last name (surname). For Intact Auto name spelling, prioritize MVR when available. MVR often lists name parts with middle name at the end; detect and ignore middle name so it never becomes first_name or last_name. Keep only true first name and true surname.",
+          "extraction_logic": "Extract the applicant's last name (surname). For Intact Auto, prioritize MVR spelling when available. ⚠️ MVR NAME COMMA RULE (HARD RULE): When the MVR shows the applicant name with a COMMA, the comma is the ONLY delimiter you may use to split first_name vs last_name. The text AFTER the comma is the last_name; the text BEFORE the comma is the first_name. NEVER split on whitespace alone — multi-word values on either side of the comma must stay intact (e.g. 'abolo pinker, durlabh' → first_name='abolo pinker', last_name='durlabh'). If the MVR shows the name WITHOUT any comma, do NOT split the printed string yourself; fall back to the Application form's explicit First Name / Last Name fields. MVR may also append a trailing middle name on either side — detect and ignore the middle name so it never becomes first_name or last_name.",
           "description": "Applicant's last name (surname)"
         },
         "first_name": {
           "type": "string",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract the applicant's first name. For Intact Auto name spelling, prioritize MVR when available. MVR often places middle name at the end; identify that trailing middle name and ignore it. Do not include middle name in first_name.",
+          "extraction_logic": "Extract the applicant's first name. For Intact Auto, prioritize MVR spelling when available. ⚠️ MVR NAME COMMA RULE (HARD RULE): When the MVR shows the applicant name with a COMMA, the comma is the ONLY delimiter you may use to split first_name vs last_name. The text BEFORE the comma is the first_name (keep all words and inner spaces — e.g. 'abolo pinker, durlabh' → first_name='abolo pinker'); the text AFTER the comma is the last_name. NEVER split on whitespace alone. If the MVR shows the name WITHOUT any comma, do NOT split the printed string yourself; fall back to the Application form's explicit First Name / Last Name fields. If MVR appends a trailing middle name, identify and ignore it — do not include middle name in first_name.",
           "description": "Applicant's first name"
         },
         "gender": {
@@ -241,14 +241,14 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "For drivers at index 1+ only: this driver's last name. Omit on the first driver (index 0). For Intact Auto, prioritize MVR spelling when available. MVR may put middle name at the end; detect and ignore middle name so it is not assigned as last_name.",
+          "extraction_logic": "For drivers at index 1+ only: this driver's last name. Omit on the first driver (index 0). For Intact Auto, prioritize MVR spelling when available. ⚠️ MVR NAME COMMA RULE (HARD RULE): When this driver's MVR shows the name with a COMMA, the comma is the ONLY delimiter for splitting first_name vs last_name. The text AFTER the comma is the last_name (e.g. 'abolo pinker, durlabh' → last_name='durlabh'). NEVER split on whitespace alone — multi-word last names must stay intact. If the MVR shows the name WITHOUT a comma, do NOT split the printed string yourself; fall back to the Application form's explicit First Name / Last Name fields for this driver. If MVR appends a trailing middle name, ignore it.",
           "description": "Additional driver's last name (omit on first driver in array)"
         },
         "first_name": {
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "For drivers at index 1+ only: this driver's first name. Omit on the first driver (index 0). For Intact Auto, prioritize MVR spelling when available. If MVR has trailing middle name, ignore that middle name and keep only true first name.",
+          "extraction_logic": "For drivers at index 1+ only: this driver's first name. Omit on the first driver (index 0). For Intact Auto, prioritize MVR spelling when available. ⚠️ MVR NAME COMMA RULE (HARD RULE): When this driver's MVR shows the name with a COMMA, the comma is the ONLY delimiter for splitting first_name vs last_name. The text BEFORE the comma is the first_name and must keep all inner spaces (e.g. 'abolo pinker, durlabh' → first_name='abolo pinker'). NEVER split on whitespace alone. If the MVR shows the name WITHOUT a comma, do NOT split the printed string yourself; fall back to the Application form's explicit First Name / Last Name fields for this driver. If MVR has trailing middle name, ignore it.",
           "description": "Additional driver's first name (omit on first driver in array)"
         },
         "gender": {
@@ -299,7 +299,8 @@
           "type": "string",
           "mode": "radio",
           "required": true,
-          "description": "Whether THIS specific driver has a driver training certificate",
+          "extraction_logic": "Whether THIS specific driver has a driver training certificate. ⚠️ DEFAULT IS 'No' — only output 'Yes' when there is EXPLICIT evidence on the Quote / Application for THIS driver, e.g. a 'Driver Training' field/label whose printed value reads 'Yes' (or an equivalent affirmative such as 'Y', a clearly checked checkbox, a printed certificate number, or 'Driver Training Certificate: Yes'). The labels 'Driver Training', 'Driver Training Certificate', 'DT', etc. are FIELD LABELS — they do NOT by themselves mean Yes; you must read the value printed alongside them for THIS driver. If the printed value next to the label is 'No' (or absent / blank), output 'No'. Do NOT infer 'Yes' from age, licence class, or because another driver in the application has Driver Training. When in doubt, output 'No'.",
+          "description": "Whether THIS specific driver has a driver training certificate (default 'No' unless the Quote/Application explicitly shows 'Yes' for this driver)",
           "options": ["Yes", "No"]
         },
         "licence_number": {
@@ -320,22 +321,22 @@
           "type": "string",
           "mode": "date",
           "required": true,
-          "extraction_logic": "Extract the G Class date licensed for THIS specific driver. ONLY include this field if licence_class is 'G'. Do NOT include if licence_class is 'G1' or 'G2'.",
-          "description": "G Class - Date Licensed in YYYY-MM-DD format"
+          "extraction_logic": "Extract the G Class date licensed for THIS specific driver. ⚠️ COLUMN ALIGNMENT (HARD RULE): The Quote / Application driver block prints licence dates as a row of THREE dates immediately under the headers `Licence Class | Date G | Date G2 | Date G1` (in this LEFT-TO-RIGHT order). The FIRST date (under 'Date G') is g_class_date_licensed, the SECOND (under 'Date G2') is g2_class_date_licensed, the THIRD (under 'Date G1') is g1_class_date_licensed. Read each value strictly from the cell directly below its header — do NOT swap, reorder, or replace these values with dates from MVR or any other source. ⚠️ DATE FORMAT: dates print as MM/DD/YYYY (US-style) in this section, so '10/20/1999' = 1999-10-20 (October 20), '09/14/1998' = 1998-09-14, NOT day-first. Convert each printed date to YYYY-MM-DD verbatim from these cells. ONLY include this field if licence_class is 'G'. Do NOT include if licence_class is 'G1' or 'G2'.",
+          "description": "G Class - Date Licensed in YYYY-MM-DD format (read from the 'Date G' column directly under that header; MM/DD/YYYY in source)"
         },
         "g2_class_date_licensed": {
           "type": "string",
           "mode": "date",
           "required": true,
-          "extraction_logic": "Extract the G2 Class date licensed for THIS specific driver. Include this field if licence_class is 'G2' or 'G'. Do NOT include if licence_class is 'G1'.",
-          "description": "G2 Class - Date Licensed in YYYY-MM-DD format"
+          "extraction_logic": "Extract the G2 Class date licensed for THIS specific driver. ⚠️ COLUMN ALIGNMENT (HARD RULE): Read the value strictly from the cell directly below the 'Date G2' header in the row `Licence Class | Date G | Date G2 | Date G1`. Do NOT pull this from the 'Date G' or 'Date G1' column, and do NOT replace with a date from MVR or any other source. ⚠️ DATE FORMAT: source prints MM/DD/YYYY (US-style), so '09/14/1998' = 1998-09-14, NOT 1998-04-09. Include this field if licence_class is 'G2' or 'G'. Do NOT include if licence_class is 'G1'.",
+          "description": "G2 Class - Date Licensed in YYYY-MM-DD format (read from the 'Date G2' column directly under that header; MM/DD/YYYY in source)"
         },
         "g1_class_date_licensed": {
           "type": "string",
           "mode": "date",
           "required": true,
-          "extraction_logic": "Extract the G1 Class date licensed for THIS specific driver. Include this field if licence_class is 'G1', 'G2', or 'G'.",
-          "description": "G1 Class - Date Licensed in YYYY-MM-DD format"
+          "extraction_logic": "Extract the G1 Class date licensed for THIS specific driver. ⚠️ COLUMN ALIGNMENT (HARD RULE): Read the value strictly from the cell directly below the 'Date G1' header in the row `Licence Class | Date G | Date G2 | Date G1`. Do NOT pull this from 'Date G' or 'Date G2'. ⚠️ DATE FORMAT: source prints MM/DD/YYYY (US-style), so '08/11/1994' = 1994-08-11. Include this field if licence_class is 'G1', 'G2', or 'G'.",
+          "description": "G1 Class - Date Licensed in YYYY-MM-DD format (read from the 'Date G1' column directly under that header; MM/DD/YYYY in source)"
         },
         "MVR_report_status": {
           "type": "string",
@@ -394,31 +395,31 @@
           "type": "string",
           "mode": "radio",
           "required": true,
-          "extraction_logic": "Extract from documents for THIS specific driver. If 'Yes', then the 'lapse_in_insurance_description' field must also be included in the output.",
+          "extraction_logic": "Extract from documents for THIS specific driver. Set to 'Yes' if ONE OR MORE lapses appear in the AutoPlus / Application 'Lapses' section for this driver. If 'Yes', the parallel arrays `lapse_in_insurance_description`, `lapse_start`, `lapse_end` MUST also be included in the output, each with one entry per lapse (same length, same order).",
           "description": "Whether there is a lapse in insurance for THIS specific driver",
           "options": ["Yes", "No"]
         },
         "lapse_in_insurance_description": {
-          "type": "string",
+          "type": "array",
           "mode": "dropdown",
           "required": true,
-          "extraction_logic": "Extract from documents for THIS specific driver. This field is only required if 'lapse_in_insurance' is 'Yes'. Select the most appropriate description for the insurance lapse from the options.",
-          "description": "Description of the insurance lapse for THIS specific driver",
+          "extraction_logic": "Only extract when 'lapse_in_insurance' is 'Yes'. ⚠️ ALWAYS OUTPUT AS A JSON ARRAY (never a single string), one element per lapse for THIS driver, even if there is only one lapse (then output a one-element array). Each element must be one of the options. Multiple lapses are common for a single driver — extract EVERY lapse row found in the AutoPlus / Application 'Lapses' section in chronological order; do NOT collapse multiple lapses into one. The arrays `lapse_in_insurance_description`, `lapse_start`, `lapse_end` MUST be the same length and aligned by index (index i = the i-th lapse). Choose the most appropriate description from the options for each lapse.",
+          "description": "Description for EACH insurance lapse for THIS specific driver — array of strings, one per lapse, aligned with lapse_start / lapse_end by index",
           "options": ["No Automobile", "Non-Payment", "Resulting from Conviction - Rateable"]
         },
         "lapse_start": {
-          "type": "string",
+          "type": "array",
           "mode": "date",
           "required": false,
-          "extraction_logic": "Only extract when 'lapse_in_insurance' is 'Yes'. Map from the Lapses section Date field for THIS specific driver.",
-          "description": "Lapse start date in YYYY-MM-DD format for THIS specific driver"
+          "extraction_logic": "Only extract when 'lapse_in_insurance' is 'Yes'. ⚠️ ALWAYS OUTPUT AS A JSON ARRAY of YYYY-MM-DD strings, one element per lapse, aligned by index with `lapse_in_insurance_description` and `lapse_end`. Map each element from the Lapses section 'Date' (lapse start) field for that specific lapse on THIS driver. If a single lapse exists, still output a one-element array.",
+          "description": "Lapse start date(s) for THIS specific driver — array of YYYY-MM-DD strings, one per lapse, aligned with lapse_in_insurance_description / lapse_end by index"
         },
         "lapse_end": {
-          "type": "string",
+          "type": "array",
           "mode": "date",
           "required": false,
-          "extraction_logic": "Only extract when 'lapse_in_insurance' is 'Yes'. Map from the Lapses section Re-Instate Date field for THIS specific driver.",
-          "description": "Lapse end date in YYYY-MM-DD format for THIS specific driver"
+          "extraction_logic": "Only extract when 'lapse_in_insurance' is 'Yes'. ⚠️ ALWAYS OUTPUT AS A JSON ARRAY of YYYY-MM-DD strings, one element per lapse, aligned by index with `lapse_in_insurance_description` and `lapse_start`. Map each element from the Lapses section 'Re-Instate Date' (lapse end) field for that specific lapse on THIS driver. If a lapse has no Re-Instate Date printed (e.g. 'No Automobile' lapse covering the gap up to the policy effective date), output null at that index — keep the array length aligned. Do NOT mix multiple lapse ends into one string.",
+          "description": "Lapse end date(s) for THIS specific driver — array of YYYY-MM-DD strings (or null per element when missing), one per lapse, aligned with lapse_in_insurance_description / lapse_start by index"
         },
         "insured_without_interruption_since": {
           "type": "string",
@@ -537,8 +538,8 @@
           "type": "number",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract kilometers driven toward work. Priority: first check the quote document, if not found check other documents.",
-          "description": "Kilometers driven toward work"
+          "extraction_logic": "Extract kilometers driven toward work for THIS vehicle. ⚠️ HARD COLUMN RULE: this value is the number printed under the 'Daily km' column header in the Quote vehicle / usage block (the row commonly shown as `Primary Use | Annual km | Business km | Daily km` or as a small label/value pair where the label is exactly 'Daily km'). Read the value DIRECTLY below or beside the 'Daily km' label — even when it is a small single-digit or two-digit number (e.g. 4, 6, 10). ⚠️ DO NOT default this field to 0 when a value is printed: a small printed value like 6 MUST be output as 6, never as 0. Only output 0 when the 'Daily km' cell is genuinely blank/absent on the Quote AND no equivalent 'distance to work' value can be located in any other document. Priority: first check the Quote, then other documents. Output an integer (no units).",
+          "description": "Kilometers driven toward work — taken from the 'Daily km' cell on the Quote (small numbers like 6 ARE valid and must NOT be replaced with 0)"
         },
         "annual_km": {
           "type": "number",
