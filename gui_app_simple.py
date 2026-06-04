@@ -531,7 +531,7 @@ class IntactJSONGeneratorGUI:
         
         # Company dropdown
         self.company_var = tk.StringVar(value="CAA_Auto")
-        company_options = ["Intact_Auto", "CAA_Auto", "CAA_property", "Aviva"]
+        company_options = ["Intact_Auto", "Intact_property", "CAA_Auto", "CAA_property", "Aviva"]
         self.company_combo = ttk.Combobox(
             company_frame,
             textvariable=self.company_var,

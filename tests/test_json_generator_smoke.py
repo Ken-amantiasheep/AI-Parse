@@ -487,6 +487,23 @@ def test_validate_and_clean_json_for_property_keeps_structure_without_error():
     assert isinstance(cleaned["coverages_information"], list)
 
 
+def test_validate_and_clean_json_for_intact_property_keeps_structure_without_error():
+    generator = _make_generator("Intact_property")
+    data = {
+        "applicant_information": {},
+        "address": {},
+        "application_info": {},
+        "drivers_information": {},
+        "vehicles_information": {},
+        "coverages_information": [],
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert isinstance(cleaned, dict)
+    assert isinstance(cleaned["coverages_information"], list)
+
+
 def test_delegate_helpers_match_pure_module():
     # parse_response_json
     wrapped_json = 'prefix {"a": 1, "b": "x"} suffix'
@@ -513,6 +530,9 @@ def test_company_postprocess_pipeline_order():
             return True
 
         def _is_intact_company(self):
+            return True
+
+        def _is_intact_auto_company(self):
             return True
 
         def _normalize_dates_by_fields_config(self, data):
@@ -578,6 +598,39 @@ def test_company_postprocess_pipeline_order():
     ]
 
 
+def test_company_postprocess_pipeline_intact_property_does_not_use_caa_property_structure():
+    class DummyGenerator:
+        def __init__(self):
+            self.company = "Intact_property"
+            self.calls = []
+
+        def _should_apply_caa_dob_normalization(self, _data):
+            return False
+
+        def _is_intact_auto_company(self):
+            return False
+
+        def _normalize_property_names(self, data):
+            self.calls.append("property_names")
+            return data
+
+        def _normalize_property_structure(self, data):
+            self.calls.append("property_structure")
+            return data
+
+        def _normalize_caa_property_structure(self, data):
+            self.calls.append("caa_property_structure")
+            return data
+
+    dummy = DummyGenerator()
+    out = company_postprocess_pipeline.run(dummy, {"start": True}, documents={})
+    assert out["start"] is True
+    assert dummy.calls == [
+        "property_names",
+        "property_structure",
+    ]
+
+
 def test_build_prompt_hash_is_stable_for_fixture():
     generator = _make_generator("Intact_Auto")
     prompt = generator._build_prompt({"quote": "abc", "application": "xyz"})
@@ -591,11 +644,13 @@ def test_company_routing_resolution():
         "legacy_aliases": {
             "caa": "caa_auto_fields_config.json",
             "intact": "intact_auto_fields_config.json",
+            "intact_property": "intact_property_fields_config.json",
         },
         "default_template": "{company_lower}_fields_config.json",
     }
     assert company_config.resolve_fields_config_name("CAA_Auto", routing) == "caa_auto_fields_config.json"
     assert company_config.resolve_fields_config_name("CAA_property", routing) == "caa_property_fields_config.json"
+    assert company_config.resolve_fields_config_name("Intact_property", routing) == "intact_property_fields_config.json"
     assert company_config.resolve_fields_config_name("CAA", routing) == "caa_auto_fields_config.json"
     assert company_config.resolve_fields_config_name("Intact", routing) == "intact_auto_fields_config.json"
     assert company_config.resolve_fields_config_name("Aviva", routing) == "aviva_fields_config.json"
@@ -1110,6 +1165,28 @@ def test_intact_auto_fields_prompt_expands_risk_interest_object():
     assert "postal_code" in section
 
 
+def test_get_applicant_filename_property_company_uses_property_prefix():
+    generator = _make_generator("Intact_property", fields_config={"fields": {}})
+    data = {
+        "applicant_information": {
+            "first_name": "Ken",
+            "last_name": "Zhang",
+        }
+    }
+    assert generator.get_applicant_filename(data) == "property+Ken Zhang"
+
+
+def test_get_applicant_filename_auto_company_keeps_original_name():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "applicant_information": {
+            "first_name": "Ken",
+            "last_name": "Zhang",
+        }
+    }
+    assert generator.get_applicant_filename(data) == "Ken Zhang"
+
+
 def test_get_required_top_level_fields_from_config():
     fallback = ["applicant_information", "drivers_information"]
     fields_config = {"fields": {"a": {}, "b": {}}}
@@ -1119,3 +1196,126 @@ def test_get_required_top_level_fields_from_config():
 def test_get_required_top_level_fields_fallback_when_missing_fields():
     fallback = ["applicant_information", "drivers_information"]
     assert get_required_top_level_fields("Intact_Auto", {}, fallback) == fallback
+
+
+def test_intact_property_backfills_missing_coverages_from_quote_rows():
+    generator = _make_generator("Intact_property", fields_config={"fields": {}})
+    data = {
+        "coverages": {
+            "Contents": {"amount": "$50,000", "deductible": "$1,000"},
+            "Sewer Backup": {"amount": "$75,000", "deductible": "$2,000"},
+        }
+    }
+    documents = {
+        "Quote": """
+Coverage                    Deductible      Amount      Premium
+Contents                                    $50,000     $661
+Additional Living Expenses                  $25,000     Inc.
+Water                       $2,000
+my Home and Auto
+Annual Premium                                      $765
+Coverage                    Deductible      Amount      Premium
+Non-smoker
+Mature Market
+Sewer Backup                $2,000          $75,000
+Annual Premium                                      $765
+""",
+    }
+    out = generator._merge_missing_property_coverages_from_quote(copy.deepcopy(data), documents)
+    cov = out["coverages"]
+    assert "Additional Living Expenses" in cov
+    assert cov["Additional Living Expenses"]["amount"] is None
+    assert cov["Additional Living Expenses"]["deductible"] is None
+    assert "Water" in cov
+    assert cov["Water"]["amount"] is None
+    assert cov["Water"]["deductible"] is None
+    assert "my Home and Auto" in cov
+    assert "Non-smoker" in cov
+    assert "Mature Market" in cov
+
+
+def test_intact_property_normalizes_noisy_coverage_keys_with_trailing_values():
+    generator = _make_generator("Intact_property", fields_config={"fields": {}})
+    data = {
+        "coverages": {
+            "Contents": {"amount": "$50,000", "deductible": "$1,000"},
+            "Contents $50,000 $661": {"amount": None, "deductible": None},
+            "Ground Water N/A N/A": {"amount": None, "deductible": None},
+            "my Home and Auto": {"amount": None, "deductible": None},
+        }
+    }
+    out = generator._merge_missing_property_coverages_from_quote(copy.deepcopy(data), documents={})
+    cov = out["coverages"]
+    assert "Contents $50,000 $661" not in cov
+    assert "Ground Water N/A N/A" not in cov
+    assert "Contents" in cov
+    assert "Ground Water" in cov
+    assert "my Home and Auto" in cov
+
+
+def test_intact_property_insureds_use_application_date_when_prior_insurer_exists():
+    generator = _make_generator("Intact_property", fields_config={"fields": {}})
+    data = {
+        "term": {"policy_effective_date": "2026-05-30"},
+        "insureds": {
+            "previous_insurer": "Intact Insurance",
+            "insured_with_broker_since": "2026-05-30",
+        },
+    }
+    documents = {
+        "Application": "Property - Insured Since 05/21/2019",
+    }
+    from utils.company_postprocess import intact_property as intact_property_post
+
+    out = intact_property_post.apply(generator, copy.deepcopy(data), documents=documents)
+    insureds = out["insureds"]
+    assert "automobile_insurance_cancelled_or_refused_in_last_3_years" not in insureds
+    assert "ubi_consent" not in insureds
+    assert insureds["insured_with_broker_since"] == "2019-05-21"
+    assert insureds["insured_without_interruption_since"] == "2019-05-21"
+
+
+def test_intact_property_previous_insurer_keeps_llm_output_without_programmatic_mapping():
+    generator = _make_generator("Intact_property", fields_config={"fields": {}})
+    data = {
+        "term": {"policy_effective_date": "2026-05-30"},
+        "insureds": {
+            "previous_insurer": "Intact",
+            "insured_with_broker_since": "05/21/2026",
+        },
+    }
+    documents = {
+        "Application": "Property - Insured Since 05/21/2019",
+    }
+    from utils.company_postprocess import intact_property as intact_property_post
+
+    out = intact_property_post.apply(generator, copy.deepcopy(data), documents=documents)
+    insureds = out["insureds"]
+    assert insureds["previous_insurer"] == "Intact"
+
+
+def test_intact_property_no_prior_insurer_uses_effective_date_and_omits_dependent_fields():
+    generator = _make_generator("Intact_property", fields_config={"fields": {}})
+    data = {
+        "term": {"policy_effective_date": "2026-05-30"},
+        "insureds": {
+            "previous_insurer": "No Prior Insurer",
+            "number_of_years_with_previous_insurer": 7,
+            "previous_insurer_policy_number": "ABC-123",
+            "previous_insurer_expiry_date": "2027-05-31",
+            "insured_with_broker_since": None,
+            "insured_without_interruption_since": None,
+        },
+    }
+    documents = {
+        "Application": "No prior property insurance",
+    }
+    from utils.company_postprocess import intact_property as intact_property_post
+
+    out = intact_property_post.apply(generator, copy.deepcopy(data), documents=documents)
+    insureds = out["insureds"]
+    assert "number_of_years_with_previous_insurer" not in insureds
+    assert "previous_insurer_policy_number" not in insureds
+    assert "previous_insurer_expiry_date" not in insureds
+    assert insureds["insured_with_broker_since"] == "2026-05-30"
+    assert insureds["insured_without_interruption_since"] == "2026-05-30"

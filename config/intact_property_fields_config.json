@@ -1,0 +1,741 @@
+{
+  "company": "Intact_property",
+  "description": "Intact Property insurance JSON output format configuration (stage 1: based on Intact Auto sections)",
+  "fields": {
+    "applicant_information": {
+      "required": true,
+      "description": "Applicant personal information",
+      "fields": {
+        "last_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the applicant's last name (surname). For Intact Auto, prioritize MVR spelling when available. ⚠️ MVR NAME COMMA RULE (HARD RULE): When the MVR shows the applicant name with a COMMA, the comma is the ONLY delimiter you may use to split first_name vs last_name. The text AFTER the comma is the last_name; the text BEFORE the comma is the first_name. NEVER split on whitespace alone — multi-word values on either side of the comma must stay intact (e.g. 'abolo pinker, durlabh' → first_name='abolo pinker', last_name='durlabh'). If the MVR shows the name WITHOUT any comma, do NOT split the printed string yourself; fall back to the Application form's explicit First Name / Last Name fields. MVR may also append a trailing middle name on either side — detect and ignore the middle name so it never becomes first_name or last_name.",
+          "description": "Applicant's last name (surname)"
+        },
+        "first_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the applicant's first name. For Intact Auto, prioritize MVR spelling when available. ⚠️ MVR NAME COMMA RULE (HARD RULE): When the MVR shows the applicant name with a COMMA, the comma is the ONLY delimiter you may use to split first_name vs last_name. The text BEFORE the comma is the first_name (keep all words and inner spaces — e.g. 'abolo pinker, durlabh' → first_name='abolo pinker'); the text AFTER the comma is the last_name. NEVER split on whitespace alone. If the MVR shows the name WITHOUT any comma, do NOT split the printed string yourself; fall back to the Application form's explicit First Name / Last Name fields. If MVR appends a trailing middle name, identify and ignore it — do not include middle name in first_name.",
+          "description": "Applicant's first name"
+        },
+        "gender": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract the applicant's gender. Priority: first check application form, if not found check other documents. Must match one of the options: Female, Male, or X.",
+          "description": "Applicant's gender",
+          "options": [
+            "Female",
+            "Male",
+            "X"
+          ]
+        },
+        "date_of_birth": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Extract the applicant's date of birth. Priority: first check application form, if not found check other documents. Convert to YYYY-MM-DD format.",
+          "description": "Applicant's date of birth in YYYY-MM-DD format"
+        },
+        "marital_status": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract the applicant's marital status. Priority: first check application form, if not found check other documents. Must match one of the options: Divorced, Married, Single, or Widow.",
+          "description": "Applicant's marital status",
+          "options": [
+            "Divorced",
+            "Married",
+            "Single",
+            "Widow"
+          ]
+        },
+        "postal_code": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the applicant's postal code from the application (Canadian format X9X9X9, e.g. 'M4C 5L6' or 'M4C5L6').",
+          "description": "Applicant postal code in Canadian format X9X9X9"
+        },
+        "full_address": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the applicant's full mailing address from the application (street/unit, city, province) without postal code, e.g. '511-5 Massey Sq, East York, ON'.",
+          "description": "Applicant full address (street, city, province — no postal code)"
+        },
+        "phone": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the applicant's primary telephone number from the application (home, cell, or main contact). Output digits only — no hyphens, spaces, parentheses, or other separators (e.g. '4165550100' not '416-555-0100').",
+          "description": "Applicant primary phone number (digits only, no separators)"
+        },
+        "email": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the applicant's email address from the application. Use the address exactly as printed.",
+          "description": "Applicant email address"
+        }
+      }
+    },
+    "broker_information": {
+      "required": true,
+      "description": "Broker information",
+      "fields": {
+        "broker_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the broker number from the application form. The broker code may start with a capital letter (e.g., 'X40460', 'A12345'). If it starts with a capital letter, ignore that letter and extract only the numeric part. Output should be 5 digits (e.g., 'X40460' should become '40460').",
+          "description": "5-digit broker number (numeric part only, ignore leading capital letter if present)"
+        },
+        "edi_client_code": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the EDI client code from the application form. Look for 'Code:' label followed by the code value (e.g., 'Code: ALEE01' should extract 'ALEE01').",
+          "description": "EDI (Electronic Data Interchange) client code"
+        }
+      }
+    },
+    "term": {
+      "required": true,
+      "description": "Term information",
+      "fields": {
+        "policy_effective_date": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "description": "Policy effective date in YYYY-MM-DD format"
+        }
+      }
+    },
+    "risk": {
+      "required": true,
+      "description": "Risk information in a single `risk` section. Select one independent template by risk_type.",
+      "type": "array",
+      "selector_field": "risk_type",
+      "extraction_logic": "Extract `risk_type` first, then populate fields ONLY from that template under `fields_by_risk_type`. Do NOT borrow fields or rules across templates.",
+      "fields": {
+        "risk_type": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Identify risk type from Quote text. Quote commonly contains indicators like condominium/homeowner. Normalize to one allowed option value.",
+          "description": "Property risk type",
+          "options": [
+            "Condominium",
+            "Homeowner",
+            "Tenant",
+            "Travelwell",
+            "Vacation Trailer",
+            "Watercraft"
+          ]
+        }
+      },
+      "fields_by_risk_type": {
+        "Condominium": {
+          "description": "Independent template for Condominium only.",
+          "fields": {
+            "use": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "If there is only one property/risk, set to 'Principal'. If multiple properties/risks exist, follow Quote assignment for each property (e.g., Principal vs Secondary).",
+              "description": "Property use type (fixed)",
+              "options": [
+                "Principal",
+                "Rental",
+                "Seasonal",
+                "Secondary"
+              ]
+            },
+            "owned_resided_since": {
+              "type": "string",
+              "mode": "date",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Occupied Since. Output in YYYY-MM-DD format.",
+              "description": "Client has owned/resided at this location since (YYYY-MM-DD)"
+            },
+            "fire_hydrant_within_300m": {
+              "type": "string",
+              "mode": "radio",
+              "required": true,
+              "extraction_logic": "Default to 'Yes' for Condominium unless explicit contrary evidence is present.",
+              "description": "Fire hydrant within 300m",
+              "options": [
+                "Yes",
+                "No"
+              ]
+            },
+            "fire_hall": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Default to 'Within 13km' for Condominium unless explicit contrary evidence is present.",
+              "description": "Fire hall distance category",
+              "options": [
+                "Within 13km",
+                "More than 13km"
+              ]
+            },
+            "building_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Structure. Use keyword/fuzzy matching to map source text to one allowed Condominium option.",
+              "description": "Building type",
+              "options": [
+                "Apartment Including Commercial Exposure",
+                "High Rise",
+                "Other",
+                "Rowhouse or Townhouse - end row",
+                "Rowhouse or Townhouse - inside row"
+              ]
+            },
+            "construction_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Construction. Use keyword/fuzzy matching to map source text to one allowed option.",
+              "description": "Construction type",
+              "options": [
+                "Aluminium",
+                "Fire Resistive",
+                "Frame (wood)",
+                "Masonry",
+                "Other",
+                "Veneer"
+              ]
+            },
+            "number_of_units_in_building": {
+              "type": "number",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Read from Application first. If not found in Application, output null.",
+              "description": "Number of units in building"
+            },
+            "occupancy_status": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Default to 'Occupied' for Condominium unless explicit contrary evidence is present.",
+              "description": "Occupancy status",
+              "options": [
+                "Occupied",
+                "Vacant"
+              ]
+            },
+            "smokers_reside_at_this_location": {
+              "type": "string",
+              "mode": "radio",
+              "required": true,
+              "extraction_logic": "From Quote header/intro, read 'Smoke-Free Household'. If source is 'Yes', output 'No' for this field. If source is 'No', output 'Yes'.",
+              "description": "Smokers reside at this location",
+              "options": [
+                "Yes",
+                "No"
+              ]
+            },
+            "year_built": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Year Dwelling Build. Output YYYY.",
+              "description": "Year built (YYYY)"
+            },
+            "primary_heat_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Extract from Primary Heating -> Type. Use keyword/fuzzy mapping to allowed options. Example: 'Central Furnace - Gas' maps to 'Forced Air Furnace'.",
+              "description": "Primary heat type",
+              "options": [
+                "Approved Combination Furnace",
+                "Baseboard Heater",
+                "Fireplace",
+                "Fixed Space Heater",
+                "Forced Air Furnace",
+                "Geo Thermal Heat Pump",
+                "Gravity Furnace",
+                "Heat Pump",
+                "Hot Water - Boiler",
+                "None",
+                "Other",
+                "Outdoor Hot Water Heater",
+                "Pellet Stove",
+                "Portable Space Heaters",
+                "Radiant Heat Panels or Film",
+                "Solar Heater",
+                "Wood Heat Furnace",
+                "Wood Stove"
+              ]
+            },
+            "security_or_mitigation_system": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "From security section, inspect Burglar Alarm, Fire Alarm, and 24 Hour Video System. Ignore values that indicate none/no/blank. If all three are none/no/blank, output null. Otherwise output a single string that concatenates only present concrete items, e.g. 'Burglar Alarm: XXXX, Fire Alarm: XXXX'.",
+              "description": "Security or mitigation system",
+              "options": []
+            },
+            "interest": {
+              "required": true,
+              "extraction_logic": "All subfields under interest must be sourced from Application (not Quote).",
+              "description": "Interested party information",
+              "fields": {
+                "has_loan": {
+                  "type": "string",
+                  "mode": "radio",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract whether there is an interested party/loan/credit/mortgage associated with this risk. Must be 'Yes' or 'No'.",
+                  "description": "Whether there is an interested party",
+                  "options": [
+                    "Yes",
+                    "No"
+                  ]
+                },
+                "type_of_interest": {
+                  "type": "string",
+                  "mode": "dropdown",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract type of interest. Select one option from the configured list.",
+                  "description": "Type of interest",
+                  "options": [
+                    "Additional Named Insured",
+                    "Line of Credit",
+                    "Mortgagee"
+                  ]
+                },
+                "company_name": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract interested party company or organization name.",
+                  "description": "Interested party name"
+                },
+                "address": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract full mailing address for the interested party.",
+                  "description": "Interested party address"
+                },
+                "postal_code": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract Canadian postal code for the interested party.",
+                  "description": "Interested party postal code"
+                }
+              }
+            }
+          }
+        },
+        "Homeowner": {
+          "description": "Independent template for Homeowner only.",
+          "fields": {
+            "use": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "If there is only one property/risk, set to 'Principal'. If multiple properties/risks exist, follow Quote assignment for each property (e.g., Principal vs Secondary).",
+              "description": "Property use type (fixed)",
+              "options": [
+                "Principal",
+                "Rental",
+                "Seasonal",
+                "Secondary"
+              ]
+            },
+            "owned_resided_since": {
+              "type": "string",
+              "mode": "date",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Occupied Since. Output in YYYY-MM-DD format.",
+              "description": "Client has owned/resided at this location since (YYYY-MM-DD)"
+            },
+            "fire_hydrant_within_300m": {
+              "type": "string",
+              "mode": "radio",
+              "required": true,
+              "extraction_logic": "Default to 'Yes' for Homeowner unless explicit contrary evidence is present.",
+              "description": "Fire hydrant within 300m",
+              "options": [
+                "Yes",
+                "No"
+              ]
+            },
+            "fire_hall": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Default to 'Within 13km' for Homeowner unless explicit contrary evidence is present.",
+              "description": "Fire hall distance category",
+              "options": [
+                "Within 13km",
+                "More than 13km"
+              ]
+            },
+            "building_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Structure. Use keyword/fuzzy matching to map source text to one allowed Homeowner option.",
+              "description": "Building type",
+              "options": [
+                "Bi Level",
+                "Detached Dwelling",
+                "Duplex",
+                "Manufactured Home",
+                "Other",
+                "Rowhouse - firewall",
+                "Rowhouse - no firewall",
+                "Semi-detached Dwelling",
+                "Townhouse",
+                "Tri Level",
+                "Triplex"
+              ]
+            },
+            "construction_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Construction. Use keyword/fuzzy matching to map source text to one allowed option.",
+              "description": "Construction type",
+              "options": [
+                "Aluminium",
+                "Fire Resistive",
+                "Frame (wood)",
+                "Masonry",
+                "Other",
+                "Veneer"
+              ]
+            },
+            "exterior_wall_finish": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Extract from Quote -> Dwelling Information -> Exterior Finish (value shown above the label, e.g. 'Brick Veneer'). Use LLM fuzzy matching to map source text to one allowed Homeowner option.",
+              "description": "Exterior wall finish",
+              "options": [
+                "Aluminium Siding",
+                "Brick Solid",
+                "Brick Veneer",
+                "Cedar Siding",
+                "Cement",
+                "Cement Fiber Board",
+                "Cement Fiber Shingles",
+                "Concrete Block",
+                "Log Siding",
+                "Metal Siding",
+                "Other",
+                "Solid Log",
+                "Stone Solid",
+                "Stone Veneer",
+                "Stucco",
+                "Vinyl Siding",
+                "Wood Siding"
+              ]
+            },
+            "occupancy_status": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Default to 'Occupied' for Homeowner unless explicit contrary evidence is present. Homeowner also allows Construction, Renovation, and Vacant — use those only when the source clearly indicates them.",
+              "description": "Occupancy status",
+              "options": [
+                "Construction",
+                "Occupied",
+                "Renovation",
+                "Vacant"
+              ]
+            },
+            "smokers_reside_at_this_location": {
+              "type": "string",
+              "mode": "radio",
+              "required": true,
+              "extraction_logic": "From Quote header/intro, read 'Smoke-Free Household'. If source is 'Yes', output 'No' for this field. If source is 'No', output 'Yes'.",
+              "description": "Smokers reside at this location",
+              "options": [
+                "Yes",
+                "No"
+              ]
+            },
+            "year_built": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Year Dwelling Build. Output YYYY.",
+              "description": "Year built (YYYY)"
+            },
+            "primary_heat_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Extract from Primary Heating -> Type. Use keyword/fuzzy mapping to allowed options. Example: 'Central Furnace - Gas' maps to 'Forced Air Furnace'.",
+              "description": "Primary heat type",
+              "options": [
+                "Approved Combination Furnace",
+                "Baseboard Heater",
+                "Fireplace",
+                "Fixed Space Heater",
+                "Forced Air Furnace",
+                "Geo Thermal Heat Pump",
+                "Gravity Furnace",
+                "Heat Pump",
+                "Hot Water - Boiler",
+                "None",
+                "Other",
+                "Outdoor Hot Water Heater",
+                "Pellet Stove",
+                "Portable Space Heaters",
+                "Radiant Heat Panels or Film",
+                "Solar Heater",
+                "Wood Heat Furnace",
+                "Wood Stove"
+              ]
+            },
+            "security_or_mitigation_system": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "From security section, inspect Burglar Alarm, Fire Alarm, and 24 Hour Video System. Ignore values that indicate none/no/blank. If all three are none/no/blank, output null. Otherwise output a single string that concatenates only present concrete items, e.g. 'Burglar Alarm: XXXX, Fire Alarm: XXXX'.",
+              "description": "Security or mitigation system",
+              "options": []
+            },
+            "electrical_wiring_update_year": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Extract from Quote -> Dwelling Information -> Year of Electrical (value above the label). Output 4-digit year YYYY only. If blank or unavailable, output null.",
+              "description": "Electrical wiring update year (YYYY)"
+            },
+            "plumbing_update_year": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Extract from Quote -> Dwelling Information -> Year of Plumbing (value above the label). Output 4-digit year YYYY only. If blank or unavailable, output null.",
+              "description": "Plumbing update year (YYYY)"
+            },
+            "primary_heat_update_year": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Extract from Quote -> Primary Heating -> Year (value above the label under Primary Heating section). Output 4-digit year YYYY only. If blank or unavailable, output null.",
+              "description": "Primary heat update year (YYYY)"
+            },
+            "roofing_update_year": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Extract from Quote -> Dwelling Information -> Year of Roof (value above the label). Output 4-digit year YYYY only. If blank or unavailable, output null.",
+              "description": "Roofing update year (YYYY)"
+            },
+            "interest": {
+              "required": true,
+              "extraction_logic": "All subfields under interest must be sourced from Application (not Quote).",
+              "description": "Interested party information",
+              "fields": {
+                "has_loan": {
+                  "type": "string",
+                  "mode": "radio",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract whether there is an interested party/loan/credit/mortgage associated with this risk. Must be 'Yes' or 'No'.",
+                  "description": "Whether there is an interested party",
+                  "options": [
+                    "Yes",
+                    "No"
+                  ]
+                },
+                "type_of_interest": {
+                  "type": "string",
+                  "mode": "dropdown",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract type of interest. Select one option from the configured list.",
+                  "description": "Type of interest",
+                  "options": [
+                    "Additional Named Insured",
+                    "Line of Credit",
+                    "Mortgagee"
+                  ]
+                },
+                "company_name": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract interested party company or organization name.",
+                  "description": "Interested party name"
+                },
+                "address": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract full mailing address for the interested party.",
+                  "description": "Interested party address"
+                },
+                "postal_code": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract Canadian postal code for the interested party.",
+                  "description": "Interested party postal code"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "coverages": {
+      "required": true,
+      "description": "Dynamic coverages extracted from Quote coverage list.",
+      "type": "object",
+      "key_format": "coverage_name",
+      "extraction_logic": "From the Quote document (coverage list section near the end), extract EVERY row under the Coverage column in order. Create dynamic keys using the exact coverage names from Quote. Do NOT use any fixed/predefined coverage field names. Include rows even when amount and/or deductible are blank. For blank cells, output null. Do NOT drop rows because of missing amount/deductible. This includes standard rows and discount/surcharge style rows (for example 'my Home and Auto'). For each row, output an object with amount and deductible only.",
+      "fields": {
+        "COVERAGE_NAME": {
+          "type": "object",
+          "description": "Dynamic coverage item. The key must be the coverage name from Quote (for example: 'Contents', 'Liability', 'Sewer Backup', etc.).",
+          "fields": {
+            "amount": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Extract the Amount-column value for this exact coverage row. Preserve printed value format when possible. If the Amount cell is blank or not provided for this row, output null (but keep the row).",
+              "description": "Coverage amount/limit for this coverage item"
+            },
+            "deductible": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "Extract the Deductible-column value for this exact coverage row. If the Deductible cell is blank or not provided for this row, output null (but keep the row).",
+              "description": "Coverage deductible for this coverage item"
+            }
+          }
+        }
+      }
+    },
+    "insureds": {
+      "required": true,
+      "description": "Insureds information (Condo/Property-specific).",
+      "fields": {
+        "insured_with_broker_since": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Extract from Application first. If previous_insurer is 'No Prior Insurer' (no past insurance), use term.policy_effective_date. Otherwise extract insured-since date from Application. Output in YYYY-MM-DD format. Must not be null.",
+          "description": "Property insured with broker since (YYYY-MM-DD)"
+        },
+        "insured_without_interruption_since": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Must equal insured_with_broker_since. Extract from Application first; if previous_insurer is 'No Prior Insurer', use term.policy_effective_date. Output in YYYY-MM-DD format. Must not be null.",
+          "description": "Insured without interruption since (YYYY-MM-DD), equal to insured_with_broker_since"
+        },
+        "previous_insurer": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract Previous Insurer for property policy. Use LLM fuzzy matching against Intact Property dropdown options and output one normalized option label. If source indicates no prior insurer/new business, output 'No Prior Insurer'. If insurer is Canadian/U.S. but not found in list, output 'Other Canada or U.S. Insurer not on the list'. If outside Canada/U.S., output 'Outside of Canada or U.S.'.",
+          "description": "Previous insurer selected from Intact Property dropdown options.",
+          "options": [
+            "No Prior Insurer",
+            "Other Canada or U.S. Insurer not on the list",
+            "Outside of Canada or U.S.",
+            "Abstainers Insurance Company",
+            "ACE INA Insurance Company (for CIGNA)",
+            "AIG Canada",
+            "Alberta Motor Association Insurance Company",
+            "Algoma Mutual Insurance Company",
+            "Allianz Insurance Company of Canada",
+            "Allianz Insurance Company of Canada (FA)",
+            "Allstate Canada (FA)",
+            "Allstate Insurance Company of Canada",
+            "Aviva Canada (FA)",
+            "Aviva Insurance Company of Canada",
+            "Belairdirect",
+            "Belairdirect/The Nordic Insurance",
+            "CAA Insurance Company (Ontario)",
+            "Certas Direct Insurance Company",
+            "Certas Home & Auto Insurance Company",
+            "Chubb Insurance Company of Canada",
+            "Co-operators General Insurance Company",
+            "Coseco Insurance Company",
+            "Desjardins Insurance",
+            "Dominion of Canada General Insurance",
+            "Dominion of Canada General Insurance (FA)",
+            "Economical Mutual Insurance Company",
+            "Echelon General Insurance Company",
+            "Gore Mutual Insurance Company",
+            "Intact Insurance",
+            "Jevco Insurance Company",
+            "Liberty Mutual Insurance",
+            "Novex Insurance Company",
+            "Optimum Insurance Company",
+            "Pembridge Insurance Company",
+            "Personal Insurance Company of Canada",
+            "Primmum Insurance Company",
+            "RBC General Insurance Company",
+            "Royal & Sun Alliance Insurance Company",
+            "SGI Canada Insurance Services Ltd",
+            "Sonnet Insurance Company",
+            "State Farm Mutual Automobile Insurance Company",
+            "TD General Insurance Company",
+            "TD Home and Auto Insurance Company",
+            "TD Home and Auto Insurance Company (FA)",
+            "TD Meloche Monnex (Security National)",
+            "The Commonwell Mutual Insurance Group",
+            "Travelers",
+            "Unica Insurance",
+            "Unifund Assurance Company",
+            "Wawanesa Mutual Insurance Company",
+            "Waterloo Insurance Company",
+            "Zurich Insurance Company"
+          ]
+        },
+        "number_of_years_with_previous_insurer": {
+          "type": "number",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Conditional field. Only include this key when previous_insurer is NOT 'No Prior Insurer'. Extract from Application field 'Number of Years with Previous Insurer'. Output numeric years only. If previous_insurer is 'No Prior Insurer', omit this key entirely.",
+          "description": "Number of years with previous insurer"
+        },
+        "previous_insurer_policy_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Conditional field. Only include this key when previous_insurer is NOT 'No Prior Insurer'. Extract from Application field 'Previous Insurer Policy Number'. Keep the policy number exactly as shown. If previous_insurer is 'No Prior Insurer', omit this key entirely.",
+          "description": "Previous insurer policy number"
+        },
+        "previous_insurer_expiry_date": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Conditional field. Only include this key when previous_insurer is NOT 'No Prior Insurer'. Extract from Application field 'Expiry Date'. Output in YYYY-MM-DD format. If previous_insurer is 'No Prior Insurer', omit this key entirely.",
+          "description": "Previous insurer expiry date (YYYY-MM-DD)"
+        }
+      }
+    },
+    "additional_info": {
+      "required": true,
+      "description": "Additional information",
+      "fields": {
+        "named_insureds_have_additional_policies_with_intact_financial_corporation": {}
+      }
+    },
+    "premium_on_quote": {
+      "required": true,
+      "scalar_at_root": true,
+      "description": "Premium on quote — final total automobile policy premium as printed on the Quote document.",
+      "type": "string",
+      "mode": "free_text",
+      "extraction_logic": "Use ONLY the Quote document (ignore Application, MVR, AutoPlus for this value). Find the final policy premium the insured pays — the bottom-line total on the quote summary, often labeled 'Total Premium', 'Annual Premium', 'Total Policy Premium', 'Premium', 'Total', or similar on the last premium/payment summary section. If the quote shows per-vehicle premiums and a policy-level grand total, use the grand total. If only one clear total appears, use that. Preserve the value as printed (digits; $ and commas optional if shown). Do not substitute per-coverage line amounts. If no total can be identified on the quote, output null. IMPORTANT: emit this value as a single JSON string at the root key `premium_on_quote` only — do NOT nest it inside an object (no `total` or other wrapper)."
+    }
+  }
+}

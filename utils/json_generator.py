@@ -151,6 +151,42 @@ class IntactJSONGenerator:
             
             if section_data.get("description"):
                 sections.append(f"   {section_data['description']}")
+            if section_data.get("extraction_logic"):
+                sections.append(f"   → EXTRACTION LOGIC: {section_data['extraction_logic']}")
+
+            fields_by_risk_type = (
+                section_data.get("fields_by_risk_type")
+                if isinstance(section_data, dict)
+                else None
+            )
+            if isinstance(fields_by_risk_type, dict) and fields_by_risk_type:
+                selector_field = section_data.get("selector_field", "risk_type")
+                sections.append(
+                    f"   This section uses risk templates by `{selector_field}`. "
+                    f"Pick ONE template that matches the extracted `{selector_field}` value."
+                )
+                common_fields = section_data.get("fields")
+                if isinstance(common_fields, dict) and common_fields:
+                    sections.append("   Common fields (always include):")
+                    for field_name, field_info in common_fields.items():
+                        if isinstance(field_info, dict):
+                            self._append_config_field_prompt(sections, field_name, field_info, 1)
+                for risk_type_name, risk_type_cfg in fields_by_risk_type.items():
+                    sections.append(f"   Template for {selector_field} = {risk_type_name}:")
+                    if isinstance(risk_type_cfg, dict) and risk_type_cfg.get("description"):
+                        sections.append(f"     {risk_type_cfg['description']}")
+                    type_fields = (
+                        risk_type_cfg.get("fields")
+                        if isinstance(risk_type_cfg, dict)
+                        else None
+                    )
+                    if isinstance(type_fields, dict):
+                        for field_name, field_info in type_fields.items():
+                            if isinstance(field_info, dict):
+                                self._append_config_field_prompt(sections, field_name, field_info, 1)
+                sections.append("")  # Empty line between sections
+                section_num += 1
+                continue
             
             # Root scalar: one string/number at top-level key == section name (no nested object)
             if isinstance(section_data, dict) and section_data.get("scalar_at_root"):
@@ -200,8 +236,11 @@ class IntactJSONGenerator:
         field_type = field_info.get("type", "string")
         field_mode = field_info.get("mode", "free_text")
         field_required = field_info.get("required", False)
+        field_required_by_risk_type = field_info.get("required_by_risk_type", {})
+        applicable_risk_types = field_info.get("applicable_risk_types", [])
         field_description = field_info.get("description", "")
         field_extraction_logic = field_info.get("extraction_logic", "")
+        field_extraction_logic_by_risk_type = field_info.get("extraction_logic_by_risk_type", {})
         field_multiple = field_info.get("multiple", False)
 
         if field_type == "array" or field_multiple:
@@ -210,8 +249,15 @@ class IntactJSONGenerator:
             field_line = f"{bullet_pad}- {field_name}: {field_type}"
 
         if field_mode == "dropdown":
+            options_by_risk_type = field_info.get("options_by_risk_type", {})
             options = field_info.get("options", [])
-            if options:
+            if options_by_risk_type:
+                by_type_parts = []
+                for rt, rt_options in options_by_risk_type.items():
+                    rt_options_str = ", ".join(str(opt) for opt in rt_options)
+                    by_type_parts.append(f"{rt}: {rt_options_str}")
+                field_line += f" (options by risk_type: {' | '.join(by_type_parts)})"
+            elif options:
                 options_str = ", ".join(str(opt) for opt in options)
                 if field_multiple or field_type == "array":
                     field_line += f" (can select multiple from: {options_str})"
@@ -219,8 +265,15 @@ class IntactJSONGenerator:
                     field_line += f" (options: {options_str})"
 
         if field_mode == "radio":
+            options_by_risk_type = field_info.get("options_by_risk_type", {})
             options = field_info.get("options", [])
-            if options:
+            if options_by_risk_type:
+                by_type_parts = []
+                for rt, rt_options in options_by_risk_type.items():
+                    rt_options_str = ", ".join(str(opt) for opt in rt_options)
+                    by_type_parts.append(f"{rt}: {rt_options_str}")
+                field_line += f" (select one by risk_type: {' | '.join(by_type_parts)})"
+            elif options:
                 options_str = ", ".join(str(opt) for opt in options)
                 field_line += f" (select one: {options_str})"
 
@@ -234,8 +287,16 @@ class IntactJSONGenerator:
             )
             field_line += f" (format: {date_format})"
 
-        if not field_required:
+        if field_required_by_risk_type:
+            required_parts = []
+            for rt, required in field_required_by_risk_type.items():
+                required_parts.append(f"{rt}: {'required' if required else 'optional'}")
+            field_line += f" (required by risk_type: {' | '.join(required_parts)})"
+        elif not field_required:
             field_line += " (optional)"
+
+        if applicable_risk_types:
+            field_line += f"\n{cont_pad}→ Applies to risk_type: {', '.join(str(rt) for rt in applicable_risk_types)}"
 
         if field_extraction_logic:
             if field_name in ("caa_membership", "caa_membership_number"):
@@ -252,6 +313,10 @@ class IntactJSONGenerator:
                 field_line += f"\n{cont_pad}→ DO NOT SKIP ANY ROWS! Extract ALL coverages and protections found in the Quote PDF tables!"
             else:
                 field_line += f"\n{cont_pad}→ EXTRACTION LOGIC: {field_extraction_logic}"
+
+        if field_extraction_logic_by_risk_type:
+            for rt, rt_logic in field_extraction_logic_by_risk_type.items():
+                field_line += f"\n{cont_pad}→ EXTRACTION LOGIC ({rt}): {rt_logic}"
 
         if field_description:
             field_line += f"\n{cont_pad}→ Description: {field_description}"
@@ -650,9 +715,9 @@ Before outputting JSON, verify:
 11. ❌ Do NOT omit `occupied_since` field in `dwelling_information` (required for all dwelling types)
 12. ❌ Do NOT use YYYY-MM-DD format for `occupied_since` (must be MM/DD/YYYY)
 
-## FULL CAA_property OUTPUT EXAMPLE - FOLLOW THIS STRUCTURE
+## FULL PROPERTY OUTPUT EXAMPLE - FOLLOW THIS STRUCTURE
 
-The overall JSON structure, section names, and nesting MUST follow this example for CAA_property outputs.
+The overall JSON structure, section names, and nesting MUST follow this example for property outputs.
 
 ```json
 {
@@ -1016,6 +1081,10 @@ The overall JSON structure, section names, and nesting MUST follow this example 
     
     def _build_prompt(self, documents: Dict[str, str]) -> str:
         """Build detailed prompt"""
+        company_upper = (self.company or "").upper()
+        is_caa_property = company_upper == "CAA_PROPERTY"
+        is_intact_property = company_upper == "INTACT_PROPERTY"
+
         prompt = prompt_common.build_prompt_intro(self.company)
         # Add document content.
         # Per user requirement: always include full text for every input file.
@@ -1030,20 +1099,26 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         if self._is_intact_auto_company():
             prompt += self._build_intact_auto_json_format_requirements()
         
-        # Add critical format requirements for property type
-        if self.company.endswith("_property"):
+        # Add CAA-property-only format requirements.
+        # Intact_property now has its own schema and should not be forced into
+        # legacy CAA property output structure.
+        if is_caa_property:
             prompt += self._build_property_format_requirements()
         
         # Build fields section from configuration
         fields_section = self._build_fields_prompt_section(self.fields_config)
         prompt += fields_section
         
-        date_rule, caa_claim_policy_rule, caa_membership_rule = prompt_caa_memo.build_rules(self.company)
-        prompt += prompt_caa_memo.build_critical_extraction_block(
-            date_rule=date_rule,
-            caa_claim_policy_rule=caa_claim_policy_rule,
-            caa_membership_rule=caa_membership_rule,
-        )
+        # Keep legacy CAA memo block for non-Intact-property flows.
+        # For Intact_property, this block introduces CAA-specific structure hints
+        # (e.g., primary_dwelling_information) and can override the target schema.
+        if not is_intact_property:
+            date_rule, caa_claim_policy_rule, caa_membership_rule = prompt_caa_memo.build_rules(self.company)
+            prompt += prompt_caa_memo.build_critical_extraction_block(
+                date_rule=date_rule,
+                caa_claim_policy_rule=caa_claim_policy_rule,
+                caa_membership_rule=caa_membership_rule,
+            )
         
         return prompt
     
@@ -1323,6 +1398,11 @@ The overall JSON structure, section names, and nesting MUST follow this example 
                         if field_info.get("mode") == "date":
                             field_formats[field_name] = self._get_configured_date_format(field_info, field_name)
                         walk(field_info)
+            fields_by_risk_type = node.get("fields_by_risk_type")
+            if isinstance(fields_by_risk_type, dict):
+                for template_info in fields_by_risk_type.values():
+                    if isinstance(template_info, dict):
+                        walk(template_info)
 
         walk(self.fields_config)
         return field_formats
@@ -2246,12 +2326,160 @@ The overall JSON structure, section names, and nesting MUST follow this example 
     @staticmethod
     def _clean_coverage_amount(value: str) -> str:
         return json_generator_pure.clean_coverage_amount(value)
+
+    @staticmethod
+    def _extract_property_coverage_row_names_from_quote_text(quote_text: str) -> List[str]:
+        """
+        Parse Quote text and collect row names from Coverage tables.
+        We only need the first column labels so missing rows can be backfilled.
+        """
+        if not isinstance(quote_text, str) or not quote_text.strip():
+            return []
+
+        names: List[str] = []
+        seen = set()
+        in_coverage_table = False
+
+        lines = quote_text.splitlines()
+        for raw_line in lines:
+            line = (raw_line or "").strip()
+            if not line:
+                continue
+
+            lower = line.lower()
+            is_header = (
+                "coverage" in lower
+                and "deductible" in lower
+                and "amount" in lower
+                and "premium" in lower
+            )
+            if is_header:
+                in_coverage_table = True
+                continue
+
+            if not in_coverage_table:
+                continue
+
+            # End of one coverage table block.
+            if lower.startswith("annual premium"):
+                in_coverage_table = False
+                continue
+
+            # Ignore table notes/separators that are not coverage items.
+            if lower.startswith("surcharges -") or lower.startswith("discounts -"):
+                continue
+
+            # First column is usually separated by large spaces/tabs from other columns.
+            parts = re.split(r"\s{2,}|\t+", line)
+            if not parts:
+                continue
+            coverage_name = IntactJSONGenerator._normalize_property_coverage_name(parts[0])
+            if not coverage_name:
+                continue
+            if coverage_name.lower() in ("coverage", "breakdown", "deductible", "amount", "premium"):
+                continue
+
+            if coverage_name not in seen:
+                seen.add(coverage_name)
+                names.append(coverage_name)
+
+        return names
+
+    @staticmethod
+    def _normalize_property_coverage_name(raw_name: str) -> str:
+        """
+        Keep only the coverage label (first column text), stripping trailing
+        table values accidentally glued by OCR, e.g.:
+          "Contents $50,000 $661" -> "Contents"
+          "Ground Water N/A N/A" -> "Ground Water"
+          "Additional Living Expenses $25,000 Inc." -> "Additional Living Expenses"
+        """
+        if not isinstance(raw_name, str):
+            return ""
+        name = raw_name.strip()
+        if not name:
+            return ""
+        name = re.sub(r"^[\-\.\u2022]+\s*", "", name).strip()
+        # Remove one or more trailing value-like tokens from Deductible/Amount/Premium columns.
+        name = re.sub(
+            r"(?:\s+(?:\$?\d[\d,]*(?:\.\d+)?|Inc\.?|N/?A|No|Yes))+$",
+            "",
+            name,
+            flags=re.IGNORECASE,
+        ).strip()
+        name = re.sub(r"\s+", " ", name).strip()
+        return name
+
+    def _merge_missing_property_coverages_from_quote(self, data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
+        """
+        Ensure Intact_property coverages include every row found in Quote coverage tables.
+        Missing rows are backfilled with amount/deductible = null.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        coverages = data.get("coverages")
+        if not isinstance(coverages, dict):
+            coverages = {}
+            data["coverages"] = coverages
+
+        # First canonicalize existing keys in case the model produced noisy names
+        # like "Contents $50,000 $661".
+        for old_key in list(coverages.keys()):
+            normalized_key = self._normalize_property_coverage_name(old_key)
+            if not normalized_key or normalized_key == old_key:
+                continue
+            src = coverages.get(old_key)
+            dst = coverages.get(normalized_key)
+            if not isinstance(src, dict):
+                src = {"amount": None, "deductible": None}
+            if not isinstance(dst, dict):
+                coverages[normalized_key] = {
+                    "amount": src.get("amount"),
+                    "deductible": src.get("deductible"),
+                }
+            else:
+                if dst.get("amount") is None and src.get("amount") is not None:
+                    dst["amount"] = src.get("amount")
+                if dst.get("deductible") is None and src.get("deductible") is not None:
+                    dst["deductible"] = src.get("deductible")
+            del coverages[old_key]
+
+        quote_texts: List[str] = []
+        if isinstance(documents, dict):
+            for doc_name, content in documents.items():
+                if isinstance(content, str) and "quote" in str(doc_name).lower():
+                    quote_texts.append(content)
+
+        extracted_names: List[str] = []
+        for text in quote_texts:
+            extracted_names.extend(self._extract_property_coverage_row_names_from_quote_text(text))
+
+        seen = set()
+        ordered_names = []
+        for name in extracted_names:
+            if name not in seen:
+                seen.add(name)
+                ordered_names.append(name)
+
+        added = 0
+        for name in ordered_names:
+            existing = coverages.get(name)
+            if not isinstance(existing, dict):
+                coverages[name] = {"amount": None, "deductible": None}
+                added += 1
+                continue
+            existing.setdefault("amount", None)
+            existing.setdefault("deductible", None)
+
+        if added > 0:
+            print(f"[INFO] Backfilled {added} missing coverage row(s) from Quote table")
+        return data
     
     def _normalize_property_structure(self, data: Dict) -> Dict:
         """
         Normalize property JSON structure to ensure:
         - coverages_information is an array [] not an object {}
-        - application_info has no duplicate fields (e.g., caa_membership)
         - coverage_amount fields are cleaned (no $, no text descriptions)
         """
         if not isinstance(data, dict):
@@ -2293,19 +2521,21 @@ The overall JSON structure, section names, and nesting MUST follow this example 
                                         if "amount" in coverage_data:
                                             coverage_data["amount"] = self._clean_coverage_amount(coverage_data["amount"])
         
-        # Remove duplicate caa_membership field in application_info
+        return data
+
+    def _normalize_caa_property_structure(self, data: Dict) -> Dict:
+        """
+        CAA property specific post-processing.
+        """
+        data = self._normalize_property_structure(data)
         application_info = data.get("application_info")
         if isinstance(application_info, dict):
-            # Check if both membership.caa_membership and caa_membership exist
             membership = application_info.get("membership")
             has_membership_caa = isinstance(membership, dict) and "caa_membership" in membership
             has_direct_caa = "caa_membership" in application_info
-            
             if has_membership_caa and has_direct_caa:
-                # Remove the duplicate direct caa_membership field
-                print(f"[INFO] Removing duplicate caa_membership field from application_info (keeping membership.caa_membership)")
+                print("[INFO] Removing duplicate caa_membership field from application_info (keeping membership.caa_membership)")
                 del application_info["caa_membership"]
-        
         return data
     
     def save_json(self, data: Dict, output_path: str):
@@ -2353,18 +2583,27 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         1) applicant_information.full_name
         2) applicant_information.first_name + applicant_information.last_name
         3) fallback
+
+        For property lines (company ends with `_property`), prefix filename with
+        `property+` to make output files easy to distinguish.
         """
+        def _with_property_prefix(base_name: str) -> str:
+            company_upper = (self.company or "").upper()
+            if company_upper.endswith("_PROPERTY"):
+                return f"property+{base_name}"
+            return base_name
+
         applicant = data.get("applicant_information", {}) if isinstance(data, dict) else {}
 
         full_name = applicant.get("full_name")
         if isinstance(full_name, str) and full_name.strip():
-            return self._sanitize_filename(full_name.strip())
+            return self._sanitize_filename(_with_property_prefix(full_name.strip()))
 
         first_name = applicant.get("first_name")
         last_name = applicant.get("last_name")
         if isinstance(first_name, str) and isinstance(last_name, str):
             combined = f"{first_name.strip()} {last_name.strip()}".strip()
             if combined:
-                return self._sanitize_filename(combined)
+                return self._sanitize_filename(_with_property_prefix(combined))
 
-        return self._sanitize_filename(fallback)
+        return self._sanitize_filename(_with_property_prefix(fallback))
