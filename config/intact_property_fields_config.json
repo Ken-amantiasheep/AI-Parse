@@ -252,7 +252,7 @@
               "type": "string",
               "mode": "dropdown",
               "required": true,
-              "extraction_logic": "Extract from Primary Heating -> Type. Use keyword/fuzzy mapping to allowed options. Example: 'Central Furnace - Gas' maps to 'Forced Air Furnace'.",
+              "extraction_logic": "Quote -> Primary Heating -> Type. Read the value above the label (e.g. 'Central Furnace - Gas'). Use LLM fuzzy matching to map source text to one allowed option. Example: 'Central Furnace - Gas' -> 'Forced Air Furnace'.",
               "description": "Primary heat type",
               "options": [
                 "Approved Combination Furnace",
@@ -473,11 +473,91 @@
               "extraction_logic": "Extract from Dwelling Information -> Year Dwelling Build. Output YYYY.",
               "description": "Year built (YYYY)"
             },
+            "year_of_manufacture": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Extract from Quote -> Dwelling Information -> Year of Manufacture (value above the label). Output 4-digit year YYYY only. If blank, unavailable, or not applicable, output null.",
+              "description": "Year of manufacture (YYYY)"
+            },
+            "total_living_area": {
+              "type": "number",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Quote -> Dwelling Information -> Total Living Area. Read the value shown above the label (e.g. '1691 sq. ft.') and output the numeric portion only as a positive integer with no units or decimals. If blank or unavailable, output null.",
+              "description": "Total living area excluding basement (natural number only)"
+            },
+            "total_living_area_unit": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Quote -> Dwelling Information -> Total Living Area. Read the unit from the same field as total_living_area and map to one allowed option: 'sq. ft.', 'sq ft', 'square feet' -> 'Sq Feet'; 'sq. m.', 'sq m', 'square meters' -> 'Sq Meters'. Use LLM fuzzy matching when the source wording differs slightly.",
+              "description": "Total living area unit",
+              "options": [
+                "Sq Feet",
+                "Sq Meters"
+              ]
+            },
+            "number_of_bathrooms": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Quote -> Dwelling Information only. Read Number of Full Baths and Number of Half Baths (values above each label). Calculate: Number of Full Baths + (0.5 × Number of Half Baths). Example: 3 full + 1 half -> '3.5'. Map the calculated result to one allowed dropdown option.",
+              "description": "Number of bathrooms",
+              "options": [
+                "0.5",
+                "1",
+                "1.5",
+                "2",
+                "2.5",
+                "3",
+                "3.5",
+                "4",
+                "4.5",
+                "5",
+                "5.5",
+                "6",
+                "6.5",
+                "7",
+                "7.5",
+                "8",
+                "8.5",
+                "9",
+                "9.5"
+              ]
+            },
+            "percent_finished": {
+              "type": "number",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Quote -> Dwelling Information -> Finished Basement. Read the value above the label (e.g. '100%'), strip the '%' symbol, and output an integer from 0 to 100. If blank or unavailable, output null.",
+              "description": "% Finished (basement finish percentage, 0-100)"
+            },
+            "garage_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Quote -> Dwelling Information -> Garage. Read the value above the label (e.g. 'Built-in'). Use LLM fuzzy matching to map source text to one allowed Homeowner option. Example: 'Built-in' -> 'Built in'.",
+              "description": "Garage type",
+              "options": [
+                "Attached Frame",
+                "Attached Masonry",
+                "Attached Masonry/Incl. Veneer",
+                "Basement",
+                "Basement under attached garage.",
+                "Built in",
+                "Carport",
+                "Carport with Storage",
+                "Detached Frame",
+                "Detached Garage Masonry",
+                "Detached Masonry Incl Veneer"
+              ]
+            },
             "primary_heat_type": {
               "type": "string",
               "mode": "dropdown",
               "required": true,
-              "extraction_logic": "Extract from Primary Heating -> Type. Use keyword/fuzzy mapping to allowed options. Example: 'Central Furnace - Gas' maps to 'Forced Air Furnace'.",
+              "extraction_logic": "Quote -> Primary Heating -> Type. Read the value above the label (e.g. 'Central Furnace - Gas'). Use LLM fuzzy matching to map source text to one allowed option. Example: 'Central Furnace - Gas' -> 'Forced Air Furnace'.",
               "description": "Primary heat type",
               "options": [
                 "Approved Combination Furnace",
@@ -508,33 +588,126 @@
               "description": "Security or mitigation system",
               "options": []
             },
+            "electrical_wiring_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Quote -> Dwelling Information -> Type of Electrical. Read the value above the label (e.g. 'Copper'). Use LLM fuzzy matching to map source text to one allowed Homeowner option.",
+              "description": "Electrical wiring type",
+              "options": [
+                "Aluminium",
+                "Copper",
+                "Knob & Tube",
+                "Mixed",
+                "Unknown"
+              ]
+            },
+            "panel_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Quote -> Dwelling Information -> Electrical Panel. Read the value above the label (e.g. 'Breakers'). Use LLM fuzzy matching to map source text to one allowed Homeowner option.",
+              "description": "Panel type",
+              "options": [
+                "Breakers",
+                "Fuses"
+              ]
+            },
+            "amperage": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Quote -> Dwelling Information -> Electrical Service. Read the value above the label (e.g. '100 AMP'), extract the numeric portion, strip 'AMP', and map to one allowed option. Use 'Other' when the source value does not match 60, 100, 125, or 200.",
+              "description": "Amperage",
+              "options": [
+                "100",
+                "125",
+                "200",
+                "60",
+                "Other"
+              ]
+            },
             "electrical_wiring_update_year": {
               "type": "string",
               "mode": "free_text",
               "required": true,
-              "extraction_logic": "Extract from Quote -> Dwelling Information -> Year of Electrical (value above the label). Output 4-digit year YYYY only. If blank or unavailable, output null.",
+              "extraction_logic": "Quote -> Dwelling Information -> Year of Electrical. Read the value above the label and output 4-digit year YYYY only. If blank or unavailable, output null.",
               "description": "Electrical wiring update year (YYYY)"
+            },
+            "plumbing_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Quote -> Dwelling Information -> Type of Plumbing. Read the value above the label (e.g. 'Mixed – Copper/PVC'). Use LLM fuzzy matching to map source text to one allowed Homeowner option. Example: 'Mixed – Copper/PVC' -> 'Copper / PVC'.",
+              "description": "Plumbing type",
+              "options": [
+                "ABS",
+                "Copper",
+                "Copper / ABS",
+                "Copper / PVC",
+                "Galvanized",
+                "Iron",
+                "Other",
+                "PEX",
+                "Polybutylene"
+              ]
             },
             "plumbing_update_year": {
               "type": "string",
               "mode": "free_text",
               "required": true,
-              "extraction_logic": "Extract from Quote -> Dwelling Information -> Year of Plumbing (value above the label). Output 4-digit year YYYY only. If blank or unavailable, output null.",
+              "extraction_logic": "Quote -> Dwelling Information -> Year of Plumbing. Read the value above the label and output 4-digit year YYYY only. If blank or unavailable, output null.",
               "description": "Plumbing update year (YYYY)"
             },
             "primary_heat_update_year": {
               "type": "string",
               "mode": "free_text",
               "required": true,
-              "extraction_logic": "Extract from Quote -> Primary Heating -> Year (value above the label under Primary Heating section). Output 4-digit year YYYY only. If blank or unavailable, output null.",
+              "extraction_logic": "Quote -> Primary Heating -> Year. Read the value above the label under the Primary Heating section and output 4-digit year YYYY only. If blank or unavailable, output null.",
               "description": "Primary heat update year (YYYY)"
+            },
+            "roof_covering_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Quote -> Dwelling Information -> Type of Roof. Read the value above the label (e.g. 'Asphalt Shingles'). Use LLM fuzzy matching to map source text to one allowed Homeowner option.",
+              "description": "Roof covering type",
+              "options": [
+                "Asphalt Roll",
+                "Asphalt Shingles",
+                "Built-Up/Tar and Gravel",
+                "Class 4 Rated Impact Resistant Asphalt Shingles",
+                "Clay Tile",
+                "Concrete Tile",
+                "Membrane",
+                "Metal",
+                "Other",
+                "Rubber",
+                "Slate Tile",
+                "Wood Shakes",
+                "Wood Shingles"
+              ]
             },
             "roofing_update_year": {
               "type": "string",
               "mode": "free_text",
               "required": true,
-              "extraction_logic": "Extract from Quote -> Dwelling Information -> Year of Roof (value above the label). Output 4-digit year YYYY only. If blank or unavailable, output null.",
+              "extraction_logic": "Quote -> Dwelling Information -> Year of Roof. Read the value above the label and output 4-digit year YYYY only. If blank or unavailable, output null.",
               "description": "Roofing update year (YYYY)"
+            },
+            "date_evaluation_completed": {
+              "type": "string",
+              "mode": "date",
+              "required": true,
+              "extraction_logic": "Quote -> Policy Information -> Last Home Evaluation. Read the value above the label and output in YYYY-MM-DD format. Example: '02/24/2026' -> '2026-02-24'. If blank or unavailable, output null.",
+              "description": "Date evaluation completed (YYYY-MM-DD)"
+            },
+            "rebuilding_cost": {
+              "type": "number",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Quote -> Policy Information -> Dwelling Value. Read the value above the label (e.g. '$728,700'). Strip currency symbols and commas; output the numeric amount only. If blank or unavailable, output null.",
+              "description": "Rebuilding cost (CAD, numeric amount only)"
             },
             "interest": {
               "required": true,

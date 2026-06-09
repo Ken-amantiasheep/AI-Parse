@@ -10,14 +10,14 @@
           "type": "string",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract the applicant's last name (surname). For Intact Auto, prioritize MVR spelling when available. ⚠️ MVR NAME COMMA RULE (HARD RULE): When the MVR shows the applicant name with a COMMA, the comma is the ONLY delimiter you may use to split first_name vs last_name. The text AFTER the comma is the last_name; the text BEFORE the comma is the first_name. NEVER split on whitespace alone — multi-word values on either side of the comma must stay intact (e.g. 'abolo pinker, durlabh' → first_name='abolo pinker', last_name='durlabh'). If the MVR shows the name WITHOUT any comma, do NOT split the printed string yourself; fall back to the Application form's explicit First Name / Last Name fields. MVR may also append a trailing middle name on either side — detect and ignore the middle name so it never becomes first_name or last_name.",
+          "extraction_logic": "Extract the applicant's last name (surname) from the MVR 'Name:' field — MVR is the authoritative source (not the Application form). ⚠️ MVR NAME FORMAT (HARD RULE): MVR prints names as LAST, FIRST[, MIDDLE] using commas as the ONLY delimiter. Case 1 — three comma-separated parts 'LAST, FIRST, MIDDLE': last_name = first part, first_name = second part; IGNORE the third part (middle name). Case 2 — two parts 'LAST, FIRST': last_name = first part, first_name = second part. Case 3 — only last name shown (no first name): either 'LAST' with no comma, OR 'LAST,' with a trailing comma but nothing after it — in both cases last_name = that text AND first_name = the same text (copy last name as first name). NEVER split on whitespace — multi-word names stay intact (e.g. 'VAN DER BERG, JOHN' → last_name='VAN DER BERG', first_name='JOHN'). Examples: 'SINGH, NAVDEEP' → last_name='SINGH'; 'WANG, AI, LEE' → last_name='WANG'; 'MADONNA' or 'MADONNA,' → last_name='MADONNA', first_name='MADONNA'.",
           "description": "Applicant's last name (surname)"
         },
         "first_name": {
           "type": "string",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract the applicant's first name. For Intact Auto, prioritize MVR spelling when available. ⚠️ MVR NAME COMMA RULE (HARD RULE): When the MVR shows the applicant name with a COMMA, the comma is the ONLY delimiter you may use to split first_name vs last_name. The text BEFORE the comma is the first_name (keep all words and inner spaces — e.g. 'abolo pinker, durlabh' → first_name='abolo pinker'); the text AFTER the comma is the last_name. NEVER split on whitespace alone. If the MVR shows the name WITHOUT any comma, do NOT split the printed string yourself; fall back to the Application form's explicit First Name / Last Name fields. If MVR appends a trailing middle name, identify and ignore it — do not include middle name in first_name.",
+          "extraction_logic": "Extract the applicant's first name from the MVR 'Name:' field — MVR is the authoritative source (not the Application form). ⚠️ MVR NAME FORMAT (HARD RULE): MVR prints names as LAST, FIRST[, MIDDLE] using commas as the ONLY delimiter. Case 1 — three comma-separated parts 'LAST, FIRST, MIDDLE': first_name = second part; IGNORE the third part (middle name). Case 2 — two parts 'LAST, FIRST': first_name = second part. Case 3 — only last name shown (no first name): either 'LAST' with no comma, OR 'LAST,' with a trailing comma but nothing after it — first_name = same as last_name (copy the last name). NEVER split on whitespace — multi-word names stay intact (e.g. 'VAN DER BERG, JOHN ANNE' → first_name='JOHN ANNE'). Examples: 'SINGH, NAVDEEP' → first_name='NAVDEEP'; 'WANG, AI, LEE' → first_name='AI' (not 'LEE'); 'MADONNA' or 'MADONNA,' → first_name='MADONNA'.",
           "description": "Applicant's first name"
         },
         "gender": {
@@ -241,14 +241,14 @@
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "For drivers at index 1+ only: this driver's last name. Omit on the first driver (index 0). For Intact Auto, prioritize MVR spelling when available. ⚠️ MVR NAME COMMA RULE (HARD RULE): When this driver's MVR shows the name with a COMMA, the comma is the ONLY delimiter for splitting first_name vs last_name. The text AFTER the comma is the last_name (e.g. 'abolo pinker, durlabh' → last_name='durlabh'). NEVER split on whitespace alone — multi-word last names must stay intact. If the MVR shows the name WITHOUT a comma, do NOT split the printed string yourself; fall back to the Application form's explicit First Name / Last Name fields for this driver. If MVR appends a trailing middle name, ignore it.",
+          "extraction_logic": "For drivers at index 1+ only: this driver's last name from THIS driver's MVR 'Name:' field. Omit on the first driver (index 0). ⚠️ MVR NAME FORMAT (HARD RULE): MVR prints LAST, FIRST[, MIDDLE] — comma is the ONLY delimiter. Case 1 'LAST, FIRST, MIDDLE': last_name = first part (ignore middle). Case 2 'LAST, FIRST': last_name = first part. Case 3 last name only ('LAST' or 'LAST,' with trailing comma): last_name = that text, first_name = same text. NEVER split on whitespace. Example: 'KAUR, HARPREET' → last_name='KAUR'; 'SMITH' or 'SMITH,' → last_name='SMITH', first_name='SMITH'.",
           "description": "Additional driver's last name (omit on first driver in array)"
         },
         "first_name": {
           "type": "string",
           "mode": "free_text",
           "required": false,
-          "extraction_logic": "For drivers at index 1+ only: this driver's first name. Omit on the first driver (index 0). For Intact Auto, prioritize MVR spelling when available. ⚠️ MVR NAME COMMA RULE (HARD RULE): When this driver's MVR shows the name with a COMMA, the comma is the ONLY delimiter for splitting first_name vs last_name. The text BEFORE the comma is the first_name and must keep all inner spaces (e.g. 'abolo pinker, durlabh' → first_name='abolo pinker'). NEVER split on whitespace alone. If the MVR shows the name WITHOUT a comma, do NOT split the printed string yourself; fall back to the Application form's explicit First Name / Last Name fields for this driver. If MVR has trailing middle name, ignore it.",
+          "extraction_logic": "For drivers at index 1+ only: this driver's first name from THIS driver's MVR 'Name:' field. Omit on the first driver (index 0). ⚠️ MVR NAME FORMAT (HARD RULE): MVR prints LAST, FIRST[, MIDDLE] — comma is the ONLY delimiter. Case 1 'LAST, FIRST, MIDDLE': first_name = second part (ignore middle). Case 2 'LAST, FIRST': first_name = second part. Case 3 last name only ('LAST' or 'LAST,' with trailing comma): first_name = same as last_name. NEVER split on whitespace. Example: 'KAUR, HARPREET' → first_name='HARPREET'; 'WANG, AI, LEE' → first_name='AI'; 'SMITH' or 'SMITH,' → first_name='SMITH'.",
           "description": "Additional driver's first name (omit on first driver in array)"
         },
         "gender": {
@@ -299,8 +299,8 @@
           "type": "string",
           "mode": "radio",
           "required": true,
-          "extraction_logic": "Whether THIS specific driver has a driver training certificate. ⚠️ DEFAULT IS 'No' — only output 'Yes' when there is EXPLICIT evidence on the Quote / Application for THIS driver, e.g. a 'Driver Training' field/label whose printed value reads 'Yes' (or an equivalent affirmative such as 'Y', a clearly checked checkbox, a printed certificate number, or 'Driver Training Certificate: Yes'). The labels 'Driver Training', 'Driver Training Certificate', 'DT', etc. are FIELD LABELS — they do NOT by themselves mean Yes; you must read the value printed alongside them for THIS driver. If the printed value next to the label is 'No' (or absent / blank), output 'No'. Do NOT infer 'Yes' from age, licence class, or because another driver in the application has Driver Training. When in doubt, output 'No'.",
-          "description": "Whether THIS specific driver has a driver training certificate (default 'No' unless the Quote/Application explicitly shows 'Yes' for this driver)",
+          "extraction_logic": "Whether THIS specific driver has a driver training certificate. ⚠️ SOURCE: Quote document ONLY — ignore Application, MVR, AutoPlus, and DIS discount lines (e.g. 'Discount - Graduated License Holder included' does NOT affect this field). On the Quote, find the 'Driver Training' field for THIS driver in the Drivers section. ⚠️ LAYOUT: the Quote often prints the value ABOVE the label (not beside it), e.g. 'No' on one line then 'Driver Training' on the next, or 'Yes' then 'Driver Training' — read the Yes/No value paired with that label (also accept horizontal 'Driver Training: Yes/No' if present). Output 'Yes' only when that Quote value is explicitly Yes, Y, or an affirmative checked indicator; output 'No' when it reads No, N, or is blank/absent on the Quote for this driver. Do NOT infer from age, licence class, another driver's value, or any non-Quote document. When the Quote shows no Driver Training field for this driver, output 'No'.",
+          "description": "Driver training certificate Yes/No — from Quote 'Driver Training' only (value often printed directly above the label); ignore Application and discounts",
           "options": ["Yes", "No"]
         },
         "licence_number": {
@@ -468,7 +468,7 @@
     },
     "assignment": {
       "required": true,
-      "description": "Assignment information. Includes per-vehicle driver usage (vehicle_1, vehicle_2, ...) aligned with quote 'Vehicle N of M' blocks and their Drivers lists, plus vehicle use and mileage fields.",
+      "description": "Assignment information. Includes per-vehicle driver usage (vehicle_1, vehicle_2, ...) aligned with quote 'Vehicle N of M' blocks and their Drivers lists, plus vehicle use and mileage fields. ⚠️ USAGE TABLE READING (Intact Quote): Primary Use / Annual km / Business km / Daily km are often OCR'd as a VERTICAL value-above-label stack (not one horizontal row). Read each field from the text line directly ABOVE its label; see km_toward_work extraction_logic for the full example.",
       "fields": {
         "vehicle_1": {
           "type": "object",
@@ -530,7 +530,7 @@
           "type": "string",
           "mode": "dropdown",
           "required": true,
-          "extraction_logic": "Extract from documents. If uncertain or no relevant information is found, default to 'Pleasure'. Only select other options (Business, Farmer Personal Use, Vocational) if there is clear evidence in the documents.",
+          "extraction_logic": "Extract primary use for THIS vehicle from the Quote usage block. ⚠️ VERTICAL STACKED LAYOUT (COMMON): OCR often prints the value on the line ABOVE the label, e.g. 'Pleasure' then 'Primary Use' (not 'Pleasure' on the same line as headers). Read the non-empty line directly above 'Primary Use' that is not another header (Annual km, Business km, Daily km). If uncertain or not found, default to 'Pleasure'.",
           "description": "Type of use for the vehicle",
           "options": ["Business", "Farmer Personal Use", "Pleasure", "Vocational"]
         },
@@ -538,21 +538,21 @@
           "type": "number",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract kilometers driven toward work for THIS vehicle. ⚠️ HARD COLUMN RULE: this value is the number printed under the 'Daily km' column header in the Quote vehicle / usage block (the row commonly shown as `Primary Use | Annual km | Business km | Daily km` or as a small label/value pair where the label is exactly 'Daily km'). Read the value DIRECTLY below or beside the 'Daily km' label — even when it is a small single-digit or two-digit number (e.g. 4, 6, 10). ⚠️ DO NOT default this field to 0 when a value is printed: a small printed value like 6 MUST be output as 6, never as 0. Only output 0 when the 'Daily km' cell is genuinely blank/absent on the Quote AND no equivalent 'distance to work' value can be located in any other document. Priority: first check the Quote, then other documents. Output an integer (no units).",
-          "description": "Kilometers driven toward work — taken from the 'Daily km' cell on the Quote (small numbers like 6 ARE valid and must NOT be replaced with 0)"
+          "extraction_logic": "Extract kilometers driven toward work (Daily km) for THIS vehicle from the Quote. ⚠️ VERTICAL STACKED LAYOUT (MOST COMMON ON INTACT QUOTE OCR): fields appear value-above-label, column by column — NOT as one horizontal row. Typical OCR order:\nPleasure\nPrimary Use\n10000\nAnnual km\nBusiness km\n6\nDaily km\nFor km_toward_work: find the line 'Daily km', then read the nearest non-empty line ABOVE it that is NOT another header label (Primary Use, Annual km, Business km). In the example above that line is '6' → output 6. ⚠️ HARD RULES: (1) Small single-digit values (4, 6, 8, 10) are VALID — never replace with 0. (2) Do NOT infer 0 from an empty Business km column; Business km blank does NOT mean Daily km is 0. (3) Only output 0 when the line immediately above 'Daily km' is another header label (cell blank) or 'Daily km' is absent. (4) Horizontal layout fallback: if values share one row under headers `Primary Use | Annual km | Business km | Daily km`, read the number under the Daily km column only. Priority: Quote first. Output integer, no units.",
+          "description": "Daily km — read the number on the line directly above the 'Daily km' label in vertical OCR (e.g. 6 above 'Daily km'); never default to 0 when that line is a number"
         },
         "annual_km": {
           "type": "number",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract annual kilometers driven. Priority: first check the quote document, if not found check other documents.",
+          "extraction_logic": "Extract annual kilometers for THIS vehicle from the Quote usage block. In the vertical stacked OCR layout, read the non-empty line directly above the 'Annual km' label (e.g. '10000' above 'Annual km'). Horizontal fallback: number under the Annual km column header. Priority: Quote first.",
           "description": "Annual kilometers driven"
         },
         "annual_business_km": {
           "type": "number",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract annual business kilometers driven. IMPORTANT: If type_of_use is 'Pleasure', annual_business_km must always be 0. For other type_of_use values, extract from documents. Priority: first check the quote document, if not found check other documents. If the value cannot be found in any document, output 0. Do not make up or guess values.",
+          "extraction_logic": "Extract annual business kilometers for THIS vehicle. In vertical stacked OCR, read the line directly above 'Business km' ONLY if that line is a number (not another header label); if the line above is 'Annual km' or another label, the Business km cell is blank → output 0. IMPORTANT: If type_of_use is 'Pleasure', annual_business_km must always be 0. Priority: Quote first.",
           "description": "Annual business kilometers driven"
         },
         "automobile_rented_or_leased_to_others": {
@@ -663,8 +663,8 @@
           "type": "array",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Mirror the Intact Quote line-by-line in this array. MANDATORY sources: (1) the main coverage/premium table (each row under coverages such as Bodily Injury / Prop. Damage, Property Damage, Direct Compensation, Accident Benefits, All Perils, Uninsured Automobile, #20 Loss of Use, #23a Lienholder Protection, #44 Family Protection, Service Fee, and any other rows on that table); (2) the DIS (discounts) sidebar/list (e.g. 'Discount - Winter Tire included', 'Discount - Hybrid and Electric Vehicle included', 'Discount - Graduated License Holder included'). Output ONE array element per quote row — do not skip a table row just because it is also filled in coverages.limit, dcpd_deductible, all_perils_or_collision_or_upset, or other dedicated fields; those fields AND this array must both reflect the quote. Use the coverage description text exactly as printed on the quote (normalize #20 to match quote wording). For the limit/deductible column (middle column, NOT PRIN./TOTALS premium): if it shows a non-zero limit/deductible, use 'Name: Value' and convert 1M/1 m = 1000000, 1K = 1000, etc.; if the limit/deductible column is blank or 'Inc.' but TOTALS premium is non-zero, output the name alone. SKIP a table row ONLY when the quote TOTALS column for that row is 0, blank premium, or clearly no charge (e.g. Property Damage with TOTALS 0, Uninsured Automobile TOTALS 0, Service Fee 0) — do not skip just because the limit/deductible is 0 when TOTALS is non-zero (e.g. Direct Compensation with deductible 0 and TOTALS 1041 → include 'Direct Compensation' without ': 0'). Always include every DIS discount bullet as its own entry (name only). Do NOT use section_optional_coverages or accident_benefits_standard_benefits. Never put premium dollars in this array — only coverage name and limit/deductible when non-zero.",
-          "description": "Every Quote coverage table row (except TOTALS=0) plus every DIS discount line — one element per row. Name: limit when non-zero; discounts as name only."
+          "extraction_logic": "Mirror the Intact Quote line-by-line in this array. MANDATORY sources: (1) the main coverage/premium table (each row under coverages such as Bodily Injury / Prop. Damage, Property Damage, Direct Compensation, Accident Benefits, All Perils, Uninsured Automobile, #20 Loss of Use, #23a Lienholder Protection, #44 Family Protection, Service Fee, and any other rows on that table); (2) the DIS (discounts) sidebar/list (e.g. 'Discount - Winter Tire included', 'Discount - Hybrid and Electric Vehicle included', 'Discount - Graduated License Holder included'). Output ONE array element per quote coverage row AND per DIS discount — ⚠️ NEVER omit a coverage or discount because its limit/deductible/premium is 0; include every row that appears on the quote. Do not skip a table row just because it is also filled in coverages.limit, dcpd_deductible, all_perils_or_collision_or_upset, or other dedicated fields; those fields AND this array must both reflect the quote. Use the coverage description text exactly as printed on the quote (normalize #20 to match quote wording). For the limit/deductible column (middle column, NOT PRIN./TOTALS premium): use 'Name: Value' when a limit/deductible is shown — including 0 (e.g. 'Direct Compensation: 0', 'Property Damage: 0'); convert 1M/1 m = 1000000, 1K = 1000, etc.; if the limit/deductible column is blank or 'Inc.' only, output the name alone. Always include every DIS discount bullet as its own entry (name only, even when the discount amount is $0). Do NOT use section_optional_coverages or accident_benefits_standard_benefits. Never put premium dollars in this array — only coverage name and limit/deductible (including 0 when printed).",
+          "description": "Every Quote coverage table row plus every DIS discount line — one element per row; never drop entries because the limit/deductible is 0"
         },
         "dcpd_deductible": {
           "type": "number",

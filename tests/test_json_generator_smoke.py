@@ -8,6 +8,7 @@ from utils import json_generator_pure
 from utils import company_config
 from utils.company_validators import get_required_top_level_fields
 from utils.company_postprocess import pipeline as company_postprocess_pipeline
+from utils.company_postprocess.intact_auto import _parse_mvr_name, _parse_vertical_usage_block
 
 
 def _make_generator(company: str, fields_config=None):
@@ -684,6 +685,96 @@ def test_company_schema_validation_uses_fields_config_when_enabled():
     assert "drivers_information" not in cleaned
 
 
+def test_parse_mvr_name_three_formats():
+    assert _parse_mvr_name("SINGH, NAVDEEP") == ("SINGH", "NAVDEEP")
+    assert _parse_mvr_name("WANG, AI, LEE") == ("WANG", "AI")
+    assert _parse_mvr_name("MADONNA") == ("MADONNA", "MADONNA")
+    assert _parse_mvr_name("MADONNA,") == ("MADONNA", "MADONNA")
+    assert _parse_mvr_name("SMITH, ") == ("SMITH", "SMITH")
+    assert _parse_mvr_name("VAN DER BERG, JOHN ANNE") == ("VAN DER BERG", "JOHN ANNE")
+
+
+def test_intact_auto_applicant_name_from_mvr_overwrites_application():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {
+            "last_name": "Wrong",
+            "first_name": "Name",
+        },
+        "driver": [{"licence_class": "G", "licence_number": "N09080000891124"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "MVR_1": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/07 ***\n"
+            "Name: SINGH, NAVDEEP\n"
+            "Licence: N09080000891124\n"
+        ),
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert cleaned["applicant_information"]["last_name"] == "SINGH"
+    assert cleaned["applicant_information"]["first_name"] == "NAVDEEP"
+
+
+def test_intact_auto_applicant_name_from_mvr_single_name_copies_first():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {"last_name": "X", "first_name": "Y"},
+        "driver": [{"licence_class": "G"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "MVR_1": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/07 ***\n"
+            "Name: MADONNA,\n"
+        ),
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert cleaned["applicant_information"]["last_name"] == "MADONNA"
+    assert cleaned["applicant_information"]["first_name"] == "MADONNA"
+
+
+def test_intact_auto_additional_driver_name_from_mvr_by_licence():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {
+            "last_name": "SINGH",
+            "first_name": "NAVDEEP",
+        },
+        "driver": [
+            {"licence_class": "G", "licence_number": "N09080000891124"},
+            {
+                "licence_class": "G2",
+                "licence_number": "H06550000915417",
+                "last_name": "WRONG",
+                "first_name": "NAME",
+            },
+        ],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "MVR_1": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/07 ***\n"
+            "Name: SINGH, NAVDEEP\n"
+            "Licence: N09080000891124\n"
+        ),
+        "MVR_2": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/22 ***\n"
+            "Name: KAUR, HARPREET, ANN\n"
+            "Licence: H06550000915417\n"
+        ),
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert cleaned["driver_2_information"]["last_name"] == "KAUR"
+    assert cleaned["driver_2_information"]["first_name"] == "HARPREET"
+
+
 def test_intact_auto_normalizes_applicant_phone_to_digits_only():
     generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
     data = {
@@ -822,7 +913,7 @@ def test_intact_auto_claim_total_amount_paid_removes_trailing_zero_decimals():
     assert cleaned["claim"]["total_amount_paid"] == ["3203", "1250", "0"]
 
 
-def test_intact_auto_additional_coverages_merges_legacy_arrays_and_drops_zero_values():
+def test_intact_auto_additional_coverages_merges_legacy_arrays_and_keeps_zero_values():
     generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
     data = {
         "coverages": {
@@ -846,12 +937,13 @@ def test_intact_auto_additional_coverages_merges_legacy_arrays_and_drops_zero_va
     assert coverages["additional_coverages"] == [
         "Uninsured Automobile: 200000",
         "OPCF 20 - Coverage for Transportation Replacement: 50000",
+        "Roadside Assistance: 0",
+        "Increased AB - Income Replacement: 0",
         "Increased AB - Death & Funeral",
     ]
 
 
-def test_intact_auto_additional_coverages_keeps_direct_compensation_without_zero_suffix():
-    """Quote rows with deductible 0 but non-zero TOTALS stay as name-only (no ': 0')."""
+def test_intact_auto_additional_coverages_keeps_zero_limit_entries():
     generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
     data = {
         "coverages": {
@@ -859,7 +951,9 @@ def test_intact_auto_additional_coverages_keeps_direct_compensation_without_zero
                 "Bodily Injury / Prop. Damage: 1000000",
                 "Direct Compensation",
                 "Direct Compensation: 0",
+                "Property Damage: 0",
                 "All Perils: 1000",
+                "Discount - Winter Tire included",
             ]
         }
     }
@@ -869,8 +963,63 @@ def test_intact_auto_additional_coverages_keeps_direct_compensation_without_zero
     assert cleaned["coverages"]["additional_coverages"] == [
         "Bodily Injury / Prop. Damage: 1000000",
         "Direct Compensation",
+        "Direct Compensation: 0",
+        "Property Damage: 0",
         "All Perils: 1000",
+        "Discount - Winter Tire included",
     ]
+
+
+def test_parse_vertical_usage_block_reads_daily_km_above_label():
+    quote = """
+Pleasure
+Primary Use
+10000
+Annual km
+Business km
+6
+Daily km
+"""
+    parsed = _parse_vertical_usage_block(quote)
+    assert parsed["type_of_use"] == "Pleasure"
+    assert parsed["annual_km"] == 10000
+    assert parsed["annual_business_km"] == 0
+    assert parsed["km_toward_work"] == 6
+
+
+def test_intact_auto_single_vehicle_assignment_daily_km_from_vertical_quote():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [{"risk_type": "PPV", "serial_number": "VIN1"}],
+        "assignment": {
+            "vehicle_1": {"driver_1": {"name": "Test User", "percentage_of_use": 100}},
+            "type_of_use": "Pleasure",
+            "km_toward_work": 0,
+            "annual_km": 10000,
+            "annual_business_km": 0,
+            "automobile_rented_or_leased_to_others": "No",
+            "automobile_used_to_carry_passengers_for_compensation_or_hire": "No",
+            "automobile_carry_explosives_or_radioactive_materials": "No",
+        },
+    }
+    documents = {
+        "Quote": """
+Vehicle 1 of 1 | Private Passenger - 2020 TOYOTA CAMRY
+Pleasure
+Primary Use
+10000
+Annual km
+Business km
+6
+Daily km
+""",
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assignment = cleaned["assignment"]
+    assert assignment["km_toward_work"] == 6
+    assert assignment["annual_km"] == 10000
+    assert assignment["type_of_use"] == "Pleasure"
 
 
 def test_intact_auto_multi_risk_assignment_moves_common_fields_into_each_vehicle():

@@ -208,15 +208,203 @@ def _extract_broker_number_from_documents(documents: Optional[Dict[str, str]]) -
     return None
 
 
+_USAGE_HEADER_LABELS = frozenset(
+    {"primary use", "annual km", "business km", "daily km"}
+)
+_TYPE_OF_USE_OPTIONS = (
+    "pleasure",
+    "business",
+    "farmer personal use",
+    "vocational",
+)
+
+
+def _is_usage_header_label(line: str) -> bool:
+    return isinstance(line, str) and line.strip().lower() in _USAGE_HEADER_LABELS
+
+
+def _normalize_type_of_use_value(raw: str) -> Optional[str]:
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    lower = text.lower()
+    if lower == "pleasure":
+        return "Pleasure"
+    if lower == "business":
+        return "Business"
+    if lower == "farmer personal use":
+        return "Farmer Personal Use"
+    if lower == "vocational":
+        return "Vocational"
+    if lower in _TYPE_OF_USE_OPTIONS:
+        return text.title() if lower == "business" else text
+    return text
+
+
+def _value_immediately_above_label(lines: list, label_idx: int) -> Optional[str]:
+    """Return the nearest non-empty line above a header label, unless that line is another label."""
+    for j in range(label_idx - 1, -1, -1):
+        prev = lines[j].strip()
+        if not prev:
+            continue
+        if _is_usage_header_label(prev):
+            return None
+        return prev
+    return None
+
+
+def _parse_vertical_usage_block(block: str) -> Optional[Dict]:
+    """
+    Parse Intact Quote usage fields from vertical value-above-label OCR, e.g.:
+      Pleasure / Primary Use / 10000 / Annual km / Business km / 6 / Daily km
+    """
+    if not isinstance(block, str) or not block.strip():
+        return None
+
+    lines = [line.strip() for line in block.splitlines()]
+    label_indices = {
+        "type_of_use": None,
+        "annual_km": None,
+        "annual_business_km": None,
+        "km_toward_work": None,
+    }
+    for idx, line in enumerate(lines):
+        lower = line.lower()
+        if lower == "primary use":
+            label_indices["type_of_use"] = idx
+        elif lower == "annual km":
+            label_indices["annual_km"] = idx
+        elif lower == "business km":
+            label_indices["annual_business_km"] = idx
+        elif lower == "daily km":
+            label_indices["km_toward_work"] = idx
+
+    if label_indices["km_toward_work"] is None and label_indices["annual_km"] is None:
+        return None
+
+    parsed: Dict = {}
+
+    primary_raw = (
+        _value_immediately_above_label(lines, label_indices["type_of_use"])
+        if label_indices["type_of_use"] is not None
+        else None
+    )
+    type_of_use = _normalize_type_of_use_value(primary_raw) if primary_raw else None
+    if type_of_use:
+        parsed["type_of_use"] = type_of_use
+
+    annual_raw = (
+        _value_immediately_above_label(lines, label_indices["annual_km"])
+        if label_indices["annual_km"] is not None
+        else None
+    )
+    if annual_raw and re.fullmatch(r"\d+", annual_raw.replace(",", "")):
+        parsed["annual_km"] = int(annual_raw.replace(",", ""))
+
+    business_raw = (
+        _value_immediately_above_label(lines, label_indices["annual_business_km"])
+        if label_indices["annual_business_km"] is not None
+        else None
+    )
+    if business_raw and re.fullmatch(r"\d+", business_raw.replace(",", "")):
+        parsed["annual_business_km"] = int(business_raw.replace(",", ""))
+    elif label_indices["annual_business_km"] is not None:
+        parsed["annual_business_km"] = 0
+
+    daily_raw = (
+        _value_immediately_above_label(lines, label_indices["km_toward_work"])
+        if label_indices["km_toward_work"] is not None
+        else None
+    )
+    if daily_raw and re.fullmatch(r"\d+", daily_raw.replace(",", "")):
+        parsed["km_toward_work"] = int(daily_raw.replace(",", ""))
+    elif label_indices["km_toward_work"] is not None:
+        parsed["km_toward_work"] = 0
+
+    return parsed or None
+
+
+def _parse_horizontal_usage_line(block: str) -> Optional[Dict]:
+    """Fallback: one data row above a horizontal Primary Use ... Daily km header row."""
+    marker = re.search(r"Primary\s+Use[\s\S]{0,80}?Daily\s*km", block, flags=re.IGNORECASE)
+    if not marker:
+        return None
+
+    prefix = block[: marker.start()]
+    candidate_line = None
+    for raw_line in reversed(prefix.splitlines()):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if not re.search(r"\d", line):
+            continue
+        candidate_line = line
+        break
+
+    if not candidate_line:
+        return None
+
+    number_matches = list(re.finditer(r"\d+", candidate_line))
+    if not number_matches:
+        return None
+
+    first_num_start = number_matches[0].start()
+    type_of_use = _normalize_type_of_use_value(candidate_line[:first_num_start].strip())
+    nums = [int(m.group()) for m in number_matches]
+    if not type_of_use or not nums:
+        return None
+
+    annual_km = nums[0]
+    if len(nums) >= 3:
+        annual_business_km = nums[1]
+        daily_km = nums[2]
+    elif len(nums) == 2:
+        annual_business_km = 0
+        daily_km = nums[1]
+    else:
+        annual_business_km = 0
+        daily_km = 0
+
+    return {
+        "type_of_use": type_of_use,
+        "annual_km": annual_km,
+        "annual_business_km": annual_business_km,
+        "km_toward_work": daily_km,
+    }
+
+
+def _parse_usage_fields_from_block(block: str) -> Optional[Dict]:
+    """Prefer vertical value-above-label OCR; fall back to horizontal row parsing."""
+    vertical = _parse_vertical_usage_block(block)
+    if vertical and "km_toward_work" in vertical:
+        return vertical
+    if vertical:
+        horizontal = _parse_horizontal_usage_line(block)
+        if horizontal:
+            merged = dict(horizontal)
+            merged.update(vertical)
+            return merged
+        return vertical
+    return _parse_horizontal_usage_line(block)
+
+
+def _get_quote_or_full_document_text(documents: Optional[Dict[str, str]]) -> str:
+    quote = _get_quote_document_text(documents)
+    if quote:
+        return quote
+    if not isinstance(documents, dict):
+        return ""
+    return "\n".join(v for v in documents.values() if isinstance(v, str))
+
+
 def _extract_assignment_values_by_vehicle_from_documents(documents: Optional[Dict[str, str]]) -> Dict[int, Dict]:
     """
-    Extract per-vehicle assignment values from quote text blocks like:
-    Vehicle N of M ... then a line near "Primary Use / Annual km / Business km / Daily km".
+    Extract per-vehicle assignment usage values from Quote blocks.
+    Supports vertical value-above-label OCR and horizontal table rows.
     """
-    if not isinstance(documents, dict) or not documents:
-        return {}
-
-    full_text = "\n".join(v for v in documents.values() if isinstance(v, str))
+    full_text = _get_quote_or_full_document_text(documents)
     if not full_text:
         return {}
 
@@ -225,70 +413,41 @@ def _extract_assignment_values_by_vehicle_from_documents(documents: Optional[Dic
         r"Vehicle\s+(\d+)\s+of\s+\d+([\s\S]*?)(?=Vehicle\s+\d+\s+of\s+\d+|$)",
         flags=re.IGNORECASE,
     )
+    matches = list(block_pattern.finditer(full_text))
 
-    for match in block_pattern.finditer(full_text):
-        vehicle_idx = int(match.group(1))
-        block = match.group(2)
-        marker = re.search(r"Primary\s+Use[\s\S]{0,80}?Daily\s*km", block, flags=re.IGNORECASE)
-        if not marker:
-            continue
+    if matches:
+        for match in matches:
+            vehicle_idx = int(match.group(1))
+            parsed = _parse_usage_fields_from_block(match.group(2))
+            if parsed:
+                vehicle_values[vehicle_idx] = parsed
+        return vehicle_values
 
-        prefix = block[: marker.start()]
-        candidate_line = None
-        for raw_line in reversed(prefix.splitlines()):
-            line = raw_line.strip()
-            if not line:
-                continue
-            if not re.search(r"\d", line):
-                continue
-            candidate_line = line
-            break
-
-        if not candidate_line:
-            continue
-
-        number_matches = list(re.finditer(r"\d+", candidate_line))
-        if not number_matches:
-            continue
-
-        first_num_start = number_matches[0].start()
-        type_of_use = candidate_line[:first_num_start].strip()
-        nums = [int(m.group()) for m in number_matches]
-        if not type_of_use or not nums:
-            continue
-
-        annual_km = nums[0]
-        if len(nums) >= 3:
-            annual_business_km = nums[1]
-            daily_km = nums[2]
-        elif len(nums) == 2:
-            annual_business_km = 0
-            daily_km = nums[1]
-        else:
-            annual_business_km = 0
-            daily_km = 0
-
-        vehicle_values[vehicle_idx] = {
-            "type_of_use": type_of_use,
-            "annual_km": annual_km,
-            "annual_business_km": annual_business_km,
-            "km_toward_work": daily_km,
-        }
-
+    parsed = _parse_usage_fields_from_block(full_text)
+    if parsed:
+        vehicle_values[1] = parsed
     return vehicle_values
 
 
-def _normalize_multi_risk_assignment(data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
+def _apply_parsed_usage_to_assignment_target(target: Dict, parsed: Dict) -> None:
+    if not isinstance(target, dict) or not isinstance(parsed, dict):
+        return
+    for field_key in _ASSIGNMENT_COMMON_KEYS:
+        if field_key in parsed:
+            target[field_key] = parsed[field_key]
+
+
+def _normalize_assignment_usage_from_quote(data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
     """
-    For Intact Auto multi-risk outputs, assignment should carry a full per-vehicle block.
-    When risk count > 1 and assignment contains shared top-level usage fields, copy those
-    fields into each vehicle_N block and remove duplicated top-level fields.
+    Fill assignment usage fields from Quote OCR (single- and multi-risk).
+    Single-risk: writes to assignment root (and vehicle_1 when present).
+    Multi-risk: distributes per vehicle_N and removes duplicated root fields.
     """
     if not isinstance(data, dict):
         return data
 
     risks = data.get("risk")
-    if not isinstance(risks, list) or len(risks) <= 1:
+    if not isinstance(risks, list) or not risks:
         return data
 
     assignment = data.get("assignment")
@@ -297,8 +456,15 @@ def _normalize_multi_risk_assignment(data: Dict, documents: Optional[Dict[str, s
 
     parsed_vehicle_values = _extract_assignment_values_by_vehicle_from_documents(documents)
 
-    # Build defaults from top-level shared fields first; fall back to vehicle_1 fields.
-    # This ensures every additional vehicle gets a full set even when model only filled vehicle_1.
+    if len(risks) == 1:
+        if parsed_vehicle_values:
+            parsed = parsed_vehicle_values.get(1) or next(iter(parsed_vehicle_values.values()))
+            _apply_parsed_usage_to_assignment_target(assignment, parsed)
+            vehicle_1 = assignment.get("vehicle_1")
+            if isinstance(vehicle_1, dict):
+                _apply_parsed_usage_to_assignment_target(vehicle_1, parsed)
+        return data
+
     default_values = {}
     for field_key in _ASSIGNMENT_COMMON_KEYS:
         if field_key in assignment:
@@ -310,7 +476,7 @@ def _normalize_multi_risk_assignment(data: Dict, documents: Optional[Dict[str, s
             if field_key not in default_values and field_key in vehicle_1:
                 default_values[field_key] = vehicle_1[field_key]
 
-    if not default_values:
+    if not default_values and not parsed_vehicle_values:
         return data
 
     for i in range(1, len(risks) + 1):
@@ -320,7 +486,6 @@ def _normalize_multi_risk_assignment(data: Dict, documents: Optional[Dict[str, s
             vehicle_assignment = {}
             assignment[vehicle_key] = vehicle_assignment
 
-        # Prefer explicit per-vehicle values parsed from quote blocks.
         if i in parsed_vehicle_values:
             vehicle_assignment.update(parsed_vehicle_values[i])
 
@@ -328,8 +493,9 @@ def _normalize_multi_risk_assignment(data: Dict, documents: Optional[Dict[str, s
             if field_key in default_values and field_key not in vehicle_assignment:
                 vehicle_assignment[field_key] = default_values[field_key]
 
-    for field_key in _ASSIGNMENT_COMMON_KEYS:
-        assignment.pop(field_key, None)
+    if default_values:
+        for field_key in _ASSIGNMENT_COMMON_KEYS:
+            assignment.pop(field_key, None)
 
     return data
 
@@ -459,6 +625,155 @@ _MVR_HEADER_PATTERN = re.compile(
     r"MOTOR\s+VEHICLE\s+RECORD\s*-\s*(\d{4}[/-]\d{2}[/-]\d{2})",
     flags=re.IGNORECASE,
 )
+_MVR_NAME_PATTERN = re.compile(
+    r"Name\s*:\s*([^\n\r]+)",
+    flags=re.IGNORECASE,
+)
+_MVR_LICENCE_PATTERN = re.compile(
+    r"Licence\s*:\s*(\S+)",
+    flags=re.IGNORECASE,
+)
+
+
+def _parse_mvr_name(name_raw: str):
+    """
+    Parse MVR 'Name:' value into (last_name, first_name).
+
+    MVR formats:
+      1) LAST, FIRST, MIDDLE  -> ignore middle name
+      2) LAST, FIRST
+      3) LAST only (or LAST, with trailing comma but no first name)
+         -> first_name = last_name (copy)
+    Comma is the only delimiter; never split on whitespace.
+    """
+    if not isinstance(name_raw, str):
+        return None
+    text = name_raw.strip()
+    if not text:
+        return None
+
+    # Trailing comma with no first name (e.g. 'SMITH,') yields one non-empty part.
+    parts = [part.strip() for part in text.split(",")]
+    parts = [part for part in parts if part]
+    if not parts:
+        return None
+
+    last_name = parts[0]
+    if len(parts) >= 2:
+        return last_name, parts[1]
+    return last_name, last_name
+
+
+def _build_mvr_name_index(documents: Optional[Dict[str, str]]):
+    """Return list of (doc_key, last_name, first_name, licence, upper_content) per MVR doc."""
+    index = []
+    if not isinstance(documents, dict):
+        return index
+
+    for doc_key, content in documents.items():
+        if not isinstance(doc_key, str) or not isinstance(content, str) or not content:
+            continue
+        if not doc_key.upper().startswith("MVR"):
+            continue
+
+        name_match = _MVR_NAME_PATTERN.search(content)
+        if not name_match:
+            continue
+        parsed = _parse_mvr_name(name_match.group(1))
+        if not parsed:
+            continue
+
+        licence_match = _MVR_LICENCE_PATTERN.search(content)
+        licence = licence_match.group(1).strip() if licence_match else ""
+        index.append((doc_key, parsed[0], parsed[1], licence, content.upper()))
+    return index
+
+
+def _find_mvr_name_for_driver(
+    driver: Dict,
+    applicant_info: Optional[Dict],
+    is_primary: bool,
+    driver_idx: int,
+    mvr_index,
+):
+    """
+    Pick the MVR name entry for this driver.
+
+    Priority: licence number match -> name token match -> positional MVR index.
+    """
+    if not mvr_index:
+        return None
+
+    licence = driver.get("licence_number")
+    licence_key = str(licence).strip() if not _is_missing(licence) else ""
+
+    if licence_key:
+        for entry in mvr_index:
+            if entry[3] and entry[3] == licence_key:
+                return entry[1], entry[2]
+
+    first, last = _driver_name_tokens(driver, applicant_info, is_primary)
+    if first or last:
+        for entry in mvr_index:
+            upper_content = entry[4]
+            last_hit = bool(last) and last in upper_content
+            first_hit = bool(first) and first in upper_content
+            if last and first:
+                if last_hit and first_hit:
+                    return entry[1], entry[2]
+            elif last_hit or first_hit:
+                return entry[1], entry[2]
+
+    if driver_idx < len(mvr_index):
+        return mvr_index[driver_idx][1], mvr_index[driver_idx][2]
+
+    if len(mvr_index) == 1:
+        return mvr_index[0][1], mvr_index[0][2]
+
+    return None
+
+
+def _apply_mvr_names_from_documents(data: Dict, documents: Optional[Dict[str, str]]) -> Dict:
+    """Overwrite applicant/additional-driver names from parsed MVR 'Name:' fields."""
+    if not isinstance(data, dict):
+        return data
+
+    mvr_index = _build_mvr_name_index(documents)
+    if not mvr_index:
+        return data
+
+    drivers = data.get("driver")
+    if not isinstance(drivers, list) or not drivers:
+        return data
+
+    applicant_info = data.get("applicant_information") if isinstance(data.get("applicant_information"), dict) else {}
+
+    for driver_idx, driver in enumerate(drivers):
+        if not isinstance(driver, dict):
+            continue
+
+        parsed = _find_mvr_name_for_driver(
+            driver,
+            applicant_info,
+            is_primary=(driver_idx == 0),
+            driver_idx=driver_idx,
+            mvr_index=mvr_index,
+        )
+        if not parsed:
+            continue
+
+        last_name, first_name = parsed
+        if driver_idx == 0:
+            target = applicant_info
+            if not isinstance(data.get("applicant_information"), dict):
+                data["applicant_information"] = target
+        else:
+            target = driver
+
+        target["last_name"] = last_name
+        target["first_name"] = first_name
+
+    return data
 _AUTOPLUS_REPORT_DATE_PATTERN = re.compile(
     r"Report\s*Date\s*[:\-]?\s*(\d{4}[/-]\d{2}[/-]\d{2}|\d{2}[/-]\d{2}[/-]\d{4})",
     flags=re.IGNORECASE,
@@ -673,29 +988,10 @@ _COVERAGE_LEGACY_ARRAY_KEYS = (
 )
 
 
-def _coverage_entry_has_zero_value(entry) -> bool:
-    """True if 'Name: 0' style entry should be dropped."""
-    if not isinstance(entry, str):
-        return False
-    text = entry.strip()
-    if not text:
-        return True
-    if ":" not in text:
-        return False
-    _, _, value_part = text.partition(":")
-    value_text = value_part.strip().replace(",", "").replace("$", "")
-    if not value_text:
-        return False
-    try:
-        return float(value_text) == 0.0
-    except ValueError:
-        return value_text in {"0", "0.0", "0.00"}
-
-
 def _normalize_intact_additional_coverages(data: Dict) -> Dict:
     """
-    Consolidate legacy coverage arrays into coverages.additional_coverages and
-    drop entries whose numeric suffix is zero.
+    Consolidate legacy coverage arrays into coverages.additional_coverages.
+    Keep every non-empty coverage/discount entry — including ': 0' values.
     """
     if not isinstance(data, dict):
         return data
@@ -714,7 +1010,7 @@ def _normalize_intact_additional_coverages(data: Dict) -> Dict:
             if item is None:
                 continue
             text = str(item).strip()
-            if not text or _coverage_entry_has_zero_value(text):
+            if not text:
                 continue
             if text not in seen:
                 seen.add(text)
@@ -729,9 +1025,7 @@ def _normalize_intact_additional_coverages(data: Dict) -> Dict:
         coverages["additional_coverages"] = [
             str(x).strip()
             for x in coverages["additional_coverages"]
-            if x is not None
-            and str(x).strip()
-            and not _coverage_entry_has_zero_value(str(x).strip())
+            if x is not None and str(x).strip()
         ]
 
     return data
@@ -896,7 +1190,8 @@ def apply(generator, data: Dict, documents: Optional[Dict[str, str]] = None) -> 
         print(f"[INFO] Normalized {intact_date_fixes} Intact date field(s) by configured format")
     data = generator._remove_non_intact_membership_fields(data)
     data = _apply_intact_defaults(generator, data, documents)
-    data = _normalize_multi_risk_assignment(data, documents)
+    data = _apply_mvr_names_from_documents(data, documents)
+    data = _normalize_assignment_usage_from_quote(data, documents)
     data = _merge_root_address_into_applicant_information(data)
     data = _normalize_intact_applicant_information(data)
     data = _promote_additional_driver_identity_blocks(data)
