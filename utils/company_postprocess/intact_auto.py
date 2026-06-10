@@ -625,14 +625,72 @@ _MVR_HEADER_PATTERN = re.compile(
     r"MOTOR\s+VEHICLE\s+RECORD\s*-\s*(\d{4}[/-]\d{2}[/-]\d{2})",
     flags=re.IGNORECASE,
 )
-_MVR_NAME_PATTERN = re.compile(
-    r"Name\s*:\s*([^\n\r]+)",
-    flags=re.IGNORECASE,
-)
 _MVR_LICENCE_PATTERN = re.compile(
-    r"Licence\s*:\s*(\S+)",
+    r"Licence(?:\s+Number)?\s*:\s*(\S+)",
     flags=re.IGNORECASE,
 )
+_MVR_NAME_FIELD_LABELS = frozenset(
+    {
+        "name",
+        "birth date",
+        "expiry date",
+        "issue date",
+        "gender",
+        "address",
+        "licence number",
+        "height",
+        "status",
+    }
+)
+_MVR_DATE_LIKE_PATTERN = re.compile(
+    r"^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$|^\d{4}[/-]\d{2}[/-]\d{2}$"
+)
+_MVR_NAME_JUNK_SUFFIX_PATTERN = re.compile(
+    r"\s+(?:Birth\s+Date|Expiry\s+Date|Issue\s+Date|BirDt|ExpDt|Gender|Address)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _normalize_licence_key(value) -> str:
+    if _is_missing(value):
+        return ""
+    return re.sub(r"[\s\-]", "", str(value)).upper()
+
+
+def _sanitize_mvr_name_token(token: str) -> str:
+    """Strip dates and non-name field labels accidentally merged into a name token."""
+    if not isinstance(token, str):
+        return ""
+    text = token.strip()
+    if not text:
+        return ""
+    text = _MVR_NAME_JUNK_SUFFIX_PATTERN.split(text, maxsplit=1)[0].strip()
+    text = re.sub(
+        r"\s*:?\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}.*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+    return text
+
+
+def _is_valid_mvr_name_part(value: str) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not text or len(text) > 80:
+        return False
+    if _MVR_DATE_LIKE_PATTERN.match(text):
+        return False
+    if re.search(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", text):
+        return False
+    lower = text.lower()
+    for label in _MVR_NAME_FIELD_LABELS:
+        if label in lower:
+            return False
+    if not re.search(r"[A-Za-z]", text):
+        return False
+    return True
 
 
 def _parse_mvr_name(name_raw: str):
@@ -648,20 +706,69 @@ def _parse_mvr_name(name_raw: str):
     """
     if not isinstance(name_raw, str):
         return None
-    text = name_raw.strip()
+    text = _sanitize_mvr_name_token(name_raw)
     if not text:
         return None
 
-    # Trailing comma with no first name (e.g. 'SMITH,') yields one non-empty part.
-    parts = [part.strip() for part in text.split(",")]
+    parts = [_sanitize_mvr_name_token(part) for part in text.split(",")]
     parts = [part for part in parts if part]
     if not parts:
         return None
 
     last_name = parts[0]
-    if len(parts) >= 2:
-        return last_name, parts[1]
-    return last_name, last_name
+    first_name = parts[1] if len(parts) >= 2 else last_name
+
+    if not _is_valid_mvr_name_part(last_name) or not _is_valid_mvr_name_part(first_name):
+        return None
+
+    return last_name, first_name
+
+
+def _extract_mvr_name_raw_from_content(content: str) -> Optional[str]:
+    """
+    Extract the raw MVR name string from Ontario / Intact MVR text.
+
+    Supports:
+      - Inline:  Name : HE, XINYI
+      - Next line: Name :\\nHE, XINYI
+      - Value above label (common PDF extract): HE, XINYI\\nName
+    """
+    if not isinstance(content, str) or not content.strip():
+        return None
+
+    inline = re.search(r"Name\s*:\s*([^\n\r]+)", content, flags=re.IGNORECASE)
+    if inline:
+        inline_value = inline.group(1).strip()
+        if inline_value and inline_value.lower() not in _MVR_NAME_FIELD_LABELS:
+            return inline_value
+
+    next_line = re.search(
+        r"Name\s*:\s*\n\s*([^\n\r]+)",
+        content,
+        flags=re.IGNORECASE,
+    )
+    if next_line:
+        candidate = next_line.group(1).strip()
+        if candidate and candidate.lower() not in _MVR_NAME_FIELD_LABELS:
+            return candidate
+
+    lines = [line.strip() for line in content.splitlines()]
+    for idx, line in enumerate(lines):
+        if line.lower() != "name" and not re.match(r"^Name\s*:?\s*$", line, flags=re.IGNORECASE):
+            continue
+        for j in range(idx - 1, -1, -1):
+            prev = lines[j].strip()
+            if not prev:
+                continue
+            if prev.lower() in _MVR_NAME_FIELD_LABELS:
+                break
+            if _MVR_DATE_LIKE_PATTERN.match(prev):
+                break
+            if re.search(r"[A-Za-z]", prev):
+                return prev
+            break
+
+    return None
 
 
 def _build_mvr_name_index(documents: Optional[Dict[str, str]]):
@@ -676,15 +783,15 @@ def _build_mvr_name_index(documents: Optional[Dict[str, str]]):
         if not doc_key.upper().startswith("MVR"):
             continue
 
-        name_match = _MVR_NAME_PATTERN.search(content)
-        if not name_match:
+        name_raw = _extract_mvr_name_raw_from_content(content)
+        if not name_raw:
             continue
-        parsed = _parse_mvr_name(name_match.group(1))
+        parsed = _parse_mvr_name(name_raw)
         if not parsed:
             continue
 
         licence_match = _MVR_LICENCE_PATTERN.search(content)
-        licence = licence_match.group(1).strip() if licence_match else ""
+        licence = _normalize_licence_key(licence_match.group(1)) if licence_match else ""
         index.append((doc_key, parsed[0], parsed[1], licence, content.upper()))
     return index
 
@@ -704,8 +811,7 @@ def _find_mvr_name_for_driver(
     if not mvr_index:
         return None
 
-    licence = driver.get("licence_number")
-    licence_key = str(licence).strip() if not _is_missing(licence) else ""
+    licence_key = _normalize_licence_key(driver.get("licence_number"))
 
     if licence_key:
         for entry in mvr_index:
@@ -763,6 +869,9 @@ def _apply_mvr_names_from_documents(data: Dict, documents: Optional[Dict[str, st
             continue
 
         last_name, first_name = parsed
+        if not _is_valid_mvr_name_part(last_name) or not _is_valid_mvr_name_part(first_name):
+            continue
+
         if driver_idx == 0:
             target = applicant_info
             if not isinstance(data.get("applicant_information"), dict):

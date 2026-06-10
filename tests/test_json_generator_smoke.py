@@ -8,7 +8,11 @@ from utils import json_generator_pure
 from utils import company_config
 from utils.company_validators import get_required_top_level_fields
 from utils.company_postprocess import pipeline as company_postprocess_pipeline
-from utils.company_postprocess.intact_auto import _parse_mvr_name, _parse_vertical_usage_block
+from utils.company_postprocess.intact_auto import (
+    _build_mvr_name_index,
+    _parse_mvr_name,
+    _parse_vertical_usage_block,
+)
 
 
 def _make_generator(company: str, fields_config=None):
@@ -692,6 +696,65 @@ def test_parse_mvr_name_three_formats():
     assert _parse_mvr_name("MADONNA,") == ("MADONNA", "MADONNA")
     assert _parse_mvr_name("SMITH, ") == ("SMITH", "SMITH")
     assert _parse_mvr_name("VAN DER BERG, JOHN ANNE") == ("VAN DER BERG", "JOHN ANNE")
+    assert _parse_mvr_name("HE, XINYI") == ("HE", "XINYI")
+    assert _parse_mvr_name("HE, XINYI Birth Date : 21/11/1992") == ("HE", "XINYI")
+    assert _parse_mvr_name("21/11/1992") is None
+
+
+def test_build_mvr_name_index_ontario_driving_record():
+    ontario_mvr = """
+ONTARIO Driving Record
+Licence Number : H2001-78909-21121
+Name : HE, XINYI
+Gender : M
+Birth Date : 21/11/1992
+"""
+    index = _build_mvr_name_index({"MVR": ontario_mvr})
+    assert len(index) == 1
+    assert index[0][1:4] == ("HE", "XINYI", "H20017890921121")
+
+
+def test_build_mvr_name_index_value_above_name_label():
+    stacked = """
+Licence Number : H2001-78909-21121
+HE, XINYI
+Name
+Birth Date
+21/11/1992
+"""
+    index = _build_mvr_name_index({"MVR": stacked})
+    assert len(index) == 1
+    assert index[0][1:3] == ("HE", "XINYI")
+
+
+def test_intact_auto_ontario_mvr_name_not_birth_date():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {
+            "last_name": "Wrong",
+            "first_name": "21/11/1992",
+        },
+        "driver": [
+            {
+                "licence_class": "G2",
+                "licence_number": "H20017890921121",
+            }
+        ],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "MVR": """
+ONTARIO Driving Record
+Licence Number : H2001-78909-21121
+Name : HE, XINYI
+Birth Date : 21/11/1992
+""",
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert cleaned["applicant_information"]["last_name"] == "HE"
+    assert cleaned["applicant_information"]["first_name"] == "XINYI"
 
 
 def test_intact_auto_applicant_name_from_mvr_overwrites_application():
