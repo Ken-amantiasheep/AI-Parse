@@ -9,6 +9,53 @@ def _is_missing(value) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+def _beacon_interest(stage: str, **details) -> None:
+    """Diagnostic beacon for tracing risk[].interest / has_loan pipeline (grep: BEACON:interest)."""
+    parts = [f"[BEACON:interest] {stage}"]
+    for key, value in details.items():
+        parts.append(f"{key}={value}")
+    print(" | ".join(parts))
+
+
+def _summarize_risk_interest(data: Dict) -> str:
+    risks = data.get("risk")
+    if isinstance(risks, dict):
+        risks = [risks]
+    if not isinstance(risks, list):
+        return "(no risk list)"
+    chunks = []
+    for idx, risk in enumerate(risks):
+        if isinstance(risk, dict):
+            chunks.append(f"risk[{idx}]={risk.get('interest')!r}")
+    return "; ".join(chunks) if chunks else "(empty risk list)"
+
+
+def _snippet_around(text: str, needle: str, radius: int = 100) -> str:
+    if not isinstance(text, str) or not text or not needle:
+        return "(empty)"
+    idx = text.upper().find(needle.upper())
+    if idx < 0:
+        return f"(not found: {needle!r})"
+    start = max(0, idx - 40)
+    end = min(len(text), idx + radius)
+    snippet = text[start:end].replace("\n", "\\n")
+    return repr(snippet)
+
+
+def _summarize_documents_for_interest(documents: Optional[Dict[str, str]]) -> str:
+    if not isinstance(documents, dict):
+        return f"type={type(documents).__name__}"
+    if not documents:
+        return "keys=(none)"
+    parts = []
+    for key, value in documents.items():
+        if isinstance(value, str):
+            parts.append(f"{key}:{len(value)}ch")
+        else:
+            parts.append(f"{key}:{type(value).__name__}")
+    return "keys=[" + ", ".join(parts) + "]"
+
+
 # Staging keys on driver[i] (i>=1); promoted to root driver_{i+1}_information / driver_{i+1}_address.
 _DRIVER_IDENTITY_KEYS = (
     "last_name",
@@ -144,6 +191,514 @@ def _get_quote_document_text(documents: Optional[Dict[str, str]]) -> Optional[st
         if isinstance(key, str) and key.strip().lower() == "quote" and isinstance(value, str) and value.strip():
             return value
     return None
+
+
+def _get_application_document_text(documents: Optional[Dict[str, str]]) -> str:
+    if not isinstance(documents, dict):
+        return ""
+    parts = []
+    for key, value in documents.items():
+        if not isinstance(key, str) or not isinstance(value, str) or not value.strip():
+            continue
+        if "application" in key.strip().lower():
+            parts.append(value)
+    if parts:
+        return "\n".join(parts)
+
+    # Some PDF bundles place the lienholder table outside Application_Form extract.
+    for value in documents.values():
+        if not isinstance(value, str) or not value.strip():
+            continue
+        if re.search(r"lienholder\s+name", value, flags=re.IGNORECASE):
+            parts.append(value)
+    if parts:
+        return "\n".join(parts)
+
+    for value in documents.values():
+        if not isinstance(value, str) or not value.strip():
+            continue
+        upper = value.upper()
+        if any(name.upper() in upper for name in _FINANCE_COMPANY_OPTIONS):
+            parts.append(value)
+    return "\n".join(parts)
+
+
+_FINANCE_COMPANY_OPTIONS = (
+    "Acura Financial Services",
+    "Alphera Financial Services",
+    "Audi Finance Services",
+    "Bank of Montreal",
+    "Banque Nationale Du Canada",
+    "Banque Royal Prets Auto",
+    "BMW Financial Services",
+    "CIBC",
+    "Edenpark",
+    "FCA Canada Inc.",
+    "Fédération des Caisses Desjardins du Québec",
+    "Ford Credit Canada",
+    "General Bank Of Canada",
+    "Genesis Finance",
+    "GM Financial",
+    "Honda Finance Services",
+    "Hyundai Motor Finance",
+    "IA Financement Auto",
+    "Kia Finance",
+    "Lendcare Capital Inc.",
+    "Libro Credit Union",
+    "Lincoln Automotive Financial Services",
+    "Manulife Bank Of Canada",
+    "Mercedes-Benz Financial Services",
+    "Mini Financial Services Canada",
+    "Nissan Canada Inc.",
+    "Porsche Financial Services Canada",
+    "Royal Bank of Canada",
+    "Scotia Dealer Advantage",
+    "Services Financiers Mini Cooper",
+    "TD Auto Finance",
+    "Toyota Credit Canada",
+    "Tricor Lease Finance Corp.",
+    "Volkswagen Credit Canada Inc.",
+)
+_CANADIAN_POSTAL_PATTERN = re.compile(
+    r"([A-Za-z]\d[A-Za-z])\s*(\d[A-Za-z]\d)",
+)
+_OAF_LIENHOLDER_ROW_PATTERN = re.compile(r"^(\d+)\.\s*(.+)$")
+_MAX_LIENHOLDER_AUTO_NO = 6
+
+
+def _looks_like_person_name(candidate: str) -> bool:
+    """Reject 'LAST, FIRST' applicant/driver names mistaken for lienholder companies."""
+    if not isinstance(candidate, str):
+        return False
+    text = candidate.strip()
+    if re.match(r"^[A-Z][A-Za-z'\-]+,\s*[A-Z][A-Za-z'\-]+", text):
+        return True
+    if re.search(r"\b(?:19|20)\d{2}\s+\d{1,2}\s+\d{1,2}\b", text):
+        return True
+    if re.search(r"\b[A-Z]\d{6,}\b", text):
+        return True
+    return False
+
+
+def _match_finance_company(text: str) -> Optional[str]:
+    if not isinstance(text, str) or not text.strip():
+        return None
+    upper = text.upper()
+    for name in sorted(_FINANCE_COMPANY_OPTIONS, key=len, reverse=True):
+        if name.upper() in upper:
+            return name
+    # Unknown lender: only accept when a PO Box mailing address is present (not DOB/licence noise).
+    if not re.search(r"(?:PO\s*Box|P\.?O\.?\s*Box)", text, flags=re.IGNORECASE):
+        return None
+    po_box_match = re.match(
+        r"^(.+?)\s*(?:-\s*)?(?:PO\s*Box|P\.?O\.?\s*Box)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not po_box_match:
+        return None
+    candidate = po_box_match.group(1).strip(" ,-")
+    if not candidate or not re.search(r"[A-Za-z]", candidate):
+        return None
+    if _looks_like_person_name(candidate):
+        return None
+    return candidate
+
+
+def _extract_canadian_postal_code(text: str) -> Optional[str]:
+    if not isinstance(text, str):
+        return None
+    match = _CANADIAN_POSTAL_PATTERN.search(text)
+    if not match:
+        return None
+    return f"{match.group(1)}{match.group(2)}".upper()
+
+
+def _split_lienholder_company_address(line_body: str, company_name: str):
+    remainder = line_body
+    if company_name:
+        idx = line_body.upper().find(company_name.upper())
+        if idx >= 0:
+            remainder = line_body[idx + len(company_name) :].strip(" ,-")
+
+    postal_code = _extract_canadian_postal_code(remainder)
+    address = remainder
+    if postal_code:
+        address = _CANADIAN_POSTAL_PATTERN.sub("", remainder, count=1).strip(" ,")
+    address = re.sub(r",\s*,", ", ", address)
+    address = re.sub(r"\s+", " ", address).strip(" ,")
+    return address, postal_code
+
+
+def _parse_lienholder_row_body(body: str) -> Optional[Dict]:
+    if not isinstance(body, str):
+        return None
+    text = body.strip()
+    if len(text) < 4 or not re.search(r"[A-Za-z]", text):
+        return None
+    company_name = _match_finance_company(text)
+    if not company_name:
+        return None
+    address, postal_code = _split_lienholder_company_address(text, company_name)
+    if not postal_code and not re.search(r"(?:PO\s*Box|P\.?O\.?\s*Box)", text, flags=re.IGNORECASE):
+        return None
+    if _looks_like_person_name(company_name):
+        return None
+    return {
+        "company_name": company_name,
+        "address": address,
+        "postal_code": postal_code or "",
+    }
+
+
+def _store_lienholder_row(result: Dict[int, Dict], auto_no: int, body: str, parsed: Dict) -> None:
+    """Prefer authoritative finance-company rows when the same auto no appears twice."""
+    if auto_no in result:
+        existing = result[auto_no]
+        existing_known = existing.get("company_name") in _FINANCE_COMPANY_OPTIONS
+        new_known = parsed.get("company_name") in _FINANCE_COMPANY_OPTIONS
+        if existing_known and not new_known:
+            return
+        if existing.get("postal_code") and not parsed.get("postal_code"):
+            return
+    result[auto_no] = parsed
+
+
+def _is_lienholder_table_header(line: str) -> bool:
+    lower = line.lower()
+    return ("auto no" in lower and "lienholder" in lower) or (
+        "lienholder" in lower and "postal address" in lower
+    )
+
+
+def _is_oaf_auto_no_only_line(line: str) -> bool:
+    return line.strip().lower() in {"no.", "no"}
+
+
+def _is_next_lienholder_row_line(line: str) -> bool:
+    return bool(_OAF_LIENHOLDER_ROW_PATTERN.match(line or "")) or bool(
+        re.fullmatch(r"\d+", line or "")
+    )
+
+
+def _is_lienholder_section_boundary(line: str) -> bool:
+    if not line:
+        return True
+    if _is_lienholder_table_header(line):
+        return True
+    return bool(re.match(r"^(AUTOMOBILE|DRIVER|VEHICLE|COVERAGE|DECLARATION)\b", line, flags=re.IGNORECASE))
+
+
+def _find_lienholder_section_block(application_text: str) -> str:
+    # OAF 1 Section 3: PDF often splits header across lines
+    #   "Auto Lienholder Name & Postal Address" / "No." / "1. TD Auto Finance - ..."
+    oaf_marker = re.search(
+        r"Auto\s+Lienholder\s+Name\s*&\s*Postal\s+Address",
+        application_text,
+        flags=re.IGNORECASE,
+    )
+    if oaf_marker:
+        return application_text[oaf_marker.start() : oaf_marker.start() + 1200]
+
+    marker = re.search(
+        r"Lienholder[\s\S]{0,80}?(?:Postal\s+Address|Name\s*&)",
+        application_text,
+        flags=re.IGNORECASE,
+    )
+    if not marker:
+        marker = re.search(r"Auto\s+No\.?\s*[\s\S]{0,40}?Lienholder", application_text, flags=re.IGNORECASE)
+    if marker:
+        return application_text[marker.start() : marker.start() + 2000]
+
+    # PDF extract may drop the section header but keep finance-company rows.
+    upper = application_text.upper()
+    for name in sorted(_FINANCE_COMPANY_OPTIONS, key=len, reverse=True):
+        if name.upper() in upper:
+            idx = upper.find(name.upper())
+            return application_text[max(0, idx - 200) : idx + 800]
+    return ""
+
+
+def _extract_lienholders_by_auto_no(application_text: str) -> Dict[int, Dict]:
+    """
+    Parse Application table: Auto No. | Lienholder Name & Postal Address.
+
+    Supports common PDF text layouts:
+      - Same line:  '1 TD Auto Finance PO Box 4086, ...'
+      - Split lines: '1' then 'TD Auto Finance PO Box 4086, ...'
+      - Fallback: any finance-company line in the lienholder section
+    """
+    if not isinstance(application_text, str) or not application_text.strip():
+        return {}
+
+    block = _find_lienholder_section_block(application_text)
+    if not block:
+        return {}
+
+    result: Dict[int, Dict] = {}
+    lines = [line.strip() for line in block.splitlines()]
+
+    # Pass 0 (OAF PP): "1. TD Auto Finance - PO Box 4086, ..."
+    for line in lines:
+        if not line or _is_lienholder_table_header(line) or _is_oaf_auto_no_only_line(line):
+            continue
+        match = _OAF_LIENHOLDER_ROW_PATTERN.match(line)
+        if not match:
+            continue
+        auto_no = int(match.group(1))
+        if auto_no < 1 or auto_no > _MAX_LIENHOLDER_AUTO_NO:
+            continue
+        body = match.group(2)
+        parsed = _parse_lienholder_row_body(body)
+        if parsed:
+            _store_lienholder_row(result, auto_no, body, parsed)
+
+    # Pass 1: AutoNo and body on the same line (no dot).
+    for line in lines:
+        if not line or _is_lienholder_table_header(line):
+            continue
+        match = re.match(r"^(\d+)\s+(.+)$", line)
+        if not match:
+            continue
+        auto_no = int(match.group(1))
+        if auto_no < 1 or auto_no > _MAX_LIENHOLDER_AUTO_NO or auto_no in result:
+            continue
+        body = match.group(2)
+        parsed = _parse_lienholder_row_body(body)
+        if parsed:
+            _store_lienholder_row(result, auto_no, body, parsed)
+
+    # Pass 2: AutoNo alone on one line, body on following line(s) — strict window only.
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if re.fullmatch(r"\d+", line or ""):
+            auto_no = int(line)
+            if 1 <= auto_no <= _MAX_LIENHOLDER_AUTO_NO and auto_no not in result:
+                body_parts = []
+                j = i + 1
+                while j < len(lines) and len(body_parts) < 4:
+                    nxt = lines[j].strip()
+                    if not nxt:
+                        j += 1
+                        continue
+                    if _is_next_lienholder_row_line(nxt) or _is_oaf_auto_no_only_line(nxt):
+                        break
+                    if _is_lienholder_section_boundary(nxt):
+                        break
+                    body_parts.append(nxt)
+                    j += 1
+                if body_parts:
+                    body = " ".join(body_parts)
+                    parsed = _parse_lienholder_row_body(body)
+                    if parsed:
+                        _store_lienholder_row(result, auto_no, body, parsed)
+                i = j
+                continue
+        i += 1
+
+    # Pass 3: finance-company rows without leading auto no (assign in order).
+    if not result:
+        next_auto_no = 1
+        for line in lines:
+            if not line or _is_lienholder_table_header(line) or _is_oaf_auto_no_only_line(line):
+                continue
+            if re.fullmatch(r"\d+", line) or _OAF_LIENHOLDER_ROW_PATTERN.match(line):
+                continue
+            if _is_lienholder_section_boundary(line):
+                break
+            parsed = _parse_lienholder_row_body(line)
+            if parsed and next_auto_no <= _MAX_LIENHOLDER_AUTO_NO:
+                result[next_auto_no] = parsed
+                next_auto_no += 1
+
+    # Pass 4: multi-line cell — finance company on one line, address/postal on following lines.
+    if not result:
+        i = 0
+        next_auto_no = 1
+        while i < len(lines):
+            line = lines[i]
+            if not line or _is_lienholder_table_header(line) or _is_oaf_auto_no_only_line(line):
+                i += 1
+                continue
+            if re.fullmatch(r"\d+", line) or _OAF_LIENHOLDER_ROW_PATTERN.match(line):
+                i += 1
+                continue
+            if _is_lienholder_section_boundary(line):
+                break
+            if _match_finance_company(line):
+                body_parts = [line]
+                j = i + 1
+                while j < len(lines) and len(body_parts) < 4:
+                    nxt = lines[j].strip()
+                    if (
+                        not nxt
+                        or _is_next_lienholder_row_line(nxt)
+                        or _is_oaf_auto_no_only_line(nxt)
+                        or _is_lienholder_section_boundary(nxt)
+                    ):
+                        break
+                    if _match_finance_company(nxt) and not _extract_canadian_postal_code(" ".join(body_parts)):
+                        break
+                    body_parts.append(nxt)
+                    j += 1
+                parsed = _parse_lienholder_row_body(" ".join(body_parts))
+                if parsed and next_auto_no <= _MAX_LIENHOLDER_AUTO_NO:
+                    result[next_auto_no] = parsed
+                    next_auto_no += 1
+                i = j
+                continue
+            i += 1
+
+    return result
+
+
+def _vehicle_is_leased_on_application(
+    application_text: str, vehicle_index: int
+) -> bool:
+    """Detect lease from Application Section 3 — not from Quote."""
+    if not isinstance(application_text, str) or not application_text.strip():
+        return False
+
+    auto_no = vehicle_index + 1
+    patterns = (
+        rf"(?:^|\n){auto_no}\.[\s\S]{{0,800}}?Leased[\s\S]{{0,40}}?\bYes\b",
+        rf"Auto\s+No\.?\s*{auto_no}[\s\S]{{0,800}}?Leased[\s\S]{{0,40}}?\bYes\b",
+        rf"Ownership[\s\S]{{0,400}}?Leased[\s\S]{{0,40}}?\bYes\b",
+    )
+    for pattern in patterns:
+        if re.search(pattern, application_text, flags=re.IGNORECASE):
+            return True
+    return False
+
+
+def _llm_company_name_needs_correction(company_name, app_company: str) -> bool:
+    """True when post-process should replace LLM company_name with Application parse."""
+    if _is_missing(company_name):
+        return True
+    if not isinstance(company_name, str):
+        return True
+    if _looks_like_person_name(company_name):
+        return True
+    if not app_company:
+        return False
+    if app_company in _FINANCE_COMPANY_OPTIONS and company_name != app_company:
+        if company_name.upper() not in app_company.upper():
+            return True
+    return False
+
+
+def _apply_interest_from_application(data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
+    """
+    Correct risk[].interest using Application 'Lienholder Name & Postal Address' table.
+
+    Post-process: always corrects has_loan (+ company_name when wrong).
+    address / postal_code: prefer LLM; fill from Application only when LLM left them empty.
+    """
+    if not isinstance(data, dict):
+        _beacon_interest("apply_interest_skip", reason="data_not_dict")
+        return data
+
+    _beacon_interest(
+        "apply_interest_enter",
+        llm_interest=_summarize_risk_interest(data),
+        documents=_summarize_documents_for_interest(documents),
+    )
+
+    application_text = _get_application_document_text(documents)
+    if not application_text.strip():
+        _beacon_interest(
+            "apply_interest_exit",
+            reason="no_application_text",
+            hint="select Application Form PDF or check PDF text extraction",
+        )
+        return data
+
+    block = _find_lienholder_section_block(application_text)
+    _beacon_interest(
+        "application_text_loaded",
+        chars=len(application_text),
+        block_chars=len(block),
+        has_lienholder_label=("lienholder" in application_text.lower()),
+        has_td_auto_finance=("td auto finance" in application_text.lower()),
+        snippet_lienholder=_snippet_around(application_text, "Lienholder"),
+        snippet_td_auto=_snippet_around(application_text, "TD Auto Finance"),
+    )
+
+    lienholders = _extract_lienholders_by_auto_no(application_text)
+    if not lienholders:
+        _beacon_interest(
+            "apply_interest_exit",
+            reason="lienholder_parse_empty",
+            parsed_auto_nos="(none)",
+            hint="PDF extract layout may not match parser; see snippet_* above",
+        )
+        return data
+
+    _beacon_interest(
+        "lienholder_parse_ok",
+        parsed_auto_nos=list(lienholders.keys()),
+        row1_company=lienholders.get(1, {}).get("company_name"),
+    )
+
+    risks = data.get("risk")
+    if isinstance(risks, dict):
+        risks = [risks]
+        data["risk"] = risks
+    if not isinstance(risks, list):
+        _beacon_interest("apply_interest_exit", reason="risk_not_list", risk_type=type(risks).__name__)
+        return data
+
+    for idx, risk in enumerate(risks):
+        if not isinstance(risk, dict):
+            _beacon_interest("risk_skip", index=idx, reason="not_dict")
+            continue
+
+        row = lienholders.get(idx + 1)
+        if not row:
+            _beacon_interest(
+                "risk_skip",
+                index=idx,
+                auto_no=idx + 1,
+                reason="no_lienholder_row_for_auto_no",
+                available_auto_nos=list(lienholders.keys()),
+            )
+            continue
+
+        interest = risk.get("interest")
+        before_has_loan = interest.get("has_loan") if isinstance(interest, dict) else None
+        if not isinstance(interest, dict):
+            interest = {}
+            risk["interest"] = interest
+
+        interest["has_loan"] = "Yes"
+        if _is_missing(interest.get("type_of_interest")):
+            interest["type_of_interest"] = (
+                "Lessor"
+                if _vehicle_is_leased_on_application(application_text, idx)
+                else "Lienholder"
+            )
+
+        app_company = row.get("company_name")
+        if app_company and _llm_company_name_needs_correction(interest.get("company_name"), app_company):
+            interest["company_name"] = app_company
+
+        if _is_missing(interest.get("address")) and row.get("address"):
+            interest["address"] = row["address"]
+        if _is_missing(interest.get("postal_code")) and row.get("postal_code"):
+            interest["postal_code"] = row["postal_code"]
+
+        _beacon_interest(
+            "risk_interest_filled",
+            index=idx,
+            auto_no=idx + 1,
+            before_has_loan=before_has_loan,
+            after_interest=interest,
+            note="has_loan+company_name corrected; address/postal_code filled only if LLM empty",
+        )
+
+    _beacon_interest("apply_interest_done", final_interest=_summarize_risk_interest(data))
+    return data
 
 
 def _extract_brokerage_insured_date_from_quote(documents: Optional[Dict[str, str]]) -> Optional[str]:
@@ -1294,6 +1849,13 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
 
 def apply(generator, data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
     """Run Intact post-processing in existing order."""
+    company = getattr(generator, "company", "")
+    _beacon_interest(
+        "intact_auto_apply_enter",
+        company=company,
+        interest_before=_summarize_risk_interest(data),
+        documents=_summarize_documents_for_interest(documents),
+    )
     data, intact_date_fixes = generator._normalize_intact_dates(data)
     if intact_date_fixes > 0:
         print(f"[INFO] Normalized {intact_date_fixes} Intact date field(s) by configured format")
@@ -1306,4 +1868,14 @@ def apply(generator, data: Dict, documents: Optional[Dict[str, str]] = None) -> 
     data = _promote_additional_driver_identity_blocks(data)
     data = _normalize_intact_claim_total_amount_paid(data)
     data = _normalize_intact_additional_coverages(data)
-    return generator._normalize_intact_structure(data)
+    data = _apply_interest_from_application(data, documents)
+    _beacon_interest(
+        "before_normalize_intact_structure",
+        interest=_summarize_risk_interest(data),
+    )
+    data = generator._normalize_intact_structure(data)
+    _beacon_interest(
+        "intact_auto_apply_exit",
+        interest_after=_summarize_risk_interest(data),
+    )
+    return data

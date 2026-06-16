@@ -52,7 +52,7 @@ class IntactJSONGenerator:
             self.config = json.load(f)
 
         self.mode = (mode or self.config.get("mode", "direct")).lower()
-        self.model = self.config.get("model", "claude-sonnet-4-20250514")
+        self.model = self.config.get("model", "claude-sonnet-4-5-20250929")
         self.max_tokens = self.config.get("max_tokens", 4096)
         self.temperature = self.config.get("temperature", 0.1)
         self.timeout_sec = int(timeout_sec or self.config.get("timeout_sec", 180))
@@ -324,6 +324,20 @@ class IntactJSONGenerator:
         sections.append(field_line)
 
     @staticmethod
+    def _build_intact_auto_interest_source_alert() -> str:
+        """Prominent rule: loan/lienholder fields use Application only — never Quote."""
+        return """## ⚠️ INTACT AUTO — LOAN / LIENHOLDER (`risk[].interest`) — APPLICATION ONLY ⚠️
+
+Before extracting `has_loan`, `type_of_interest`, `company_name`, `address`, or `postal_code`:
+
+1. **Open Application_Form only** — OAF 1, Section 3 (Described Automobile), row **'Lienholder Name & Postal Address'** for this vehicle's Auto No.
+2. **DO NOT use Quote** for any `interest` field. Quote **'#23a Lienholder Protection'** is an insurance coverage premium line — it is **NOT** the finance company and **NOT** evidence of whether `has_loan` is Yes or No.
+3. If the Application lienholder row for this Auto No. has a company name and/or address → `has_loan` = **Yes** and fill **all** interest sub-fields from that Application row.
+4. Only set `has_loan` = **No** when that Application row is **blank**.
+
+"""
+
+    @staticmethod
     def _build_intact_auto_json_format_requirements() -> str:
         """Intact Auto only: strict JSON and multi-vehicle `risk` array rules."""
         return """## Intact Auto — JSON output (mandatory)
@@ -332,8 +346,23 @@ class IntactJSONGenerator:
 - For sections configured as arrays (for example `risk` in Intact Auto), ALWAYS output an array `[]`.
 - If multiple vehicles/risks are found, include ALL of them in `risk` as separate array elements in the same order as the source document.
 - Inside each `risk` element, `interest` MUST be a JSON object with sub-keys such as `has_loan`, and when `has_loan` is `Yes` also `type_of_interest`, `company_name`, `address`, and `postal_code`. Never replace `interest` with one string that merges bank name and address.
+- **`risk[].interest` = Application_Form ONLY** (never Quote/MVR/Autoplus). Extract `address` and `postal_code` from the Application lienholder row (any mailing format).
 
 """
+
+    @staticmethod
+    def _order_documents_for_intact_auto_prompt(documents: Dict[str, str]) -> Dict[str, str]:
+        """List Application_Form first so lienholder table is seen before Quote."""
+        if not isinstance(documents, dict):
+            return documents
+        application = []
+        other = []
+        for key, value in documents.items():
+            if isinstance(key, str) and "application" in key.strip().lower():
+                application.append((key, value))
+            else:
+                other.append((key, value))
+        return dict(application + other)
 
     def _build_property_format_requirements(self) -> str:
         """Build critical format requirements section for property type"""
@@ -1086,10 +1115,17 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         is_intact_property = company_upper == "INTACT_PROPERTY"
 
         prompt = prompt_common.build_prompt_intro(self.company)
+        if self._is_intact_auto_company():
+            prompt += self._build_intact_auto_interest_source_alert()
+
+        doc_map = documents
+        if self._is_intact_auto_company() and isinstance(documents, dict):
+            doc_map = self._order_documents_for_intact_auto_prompt(documents)
+
         # Add document content.
         # Per user requirement: always include full text for every input file.
         # Do not truncate any document content.
-        for doc_name, content in documents.items():
+        for doc_name, content in doc_map.items():
             content_preview = content
             prompt += f"\n### {doc_name} Document:\n{content_preview}\n"
         
@@ -1316,8 +1352,32 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         if "coverages_information" in data and not isinstance(data["coverages_information"], dict):
             data["coverages_information"] = {}
 
+        risks = data.get("risk")
+        if isinstance(risks, dict):
+            risks = [risks]
+        llm_interest = None
+        if isinstance(risks, list) and risks and isinstance(risks[0], dict):
+            llm_interest = risks[0].get("interest")
+        doc_keys = list(documents.keys()) if isinstance(documents, dict) else None
+        print(
+            f"[BEACON:interest] validate_and_clean_enter | "
+            f"company={self.company} | documents_passed={documents is not None} | "
+            f"doc_keys={doc_keys} | llm_risk0_interest={llm_interest!r}"
+        )
+
         data = company_postprocess_pipeline.run(self, data, documents)
-        
+
+        risks_after = data.get("risk")
+        if isinstance(risks_after, dict):
+            risks_after = [risks_after]
+        final_interest = None
+        if isinstance(risks_after, list) and risks_after and isinstance(risks_after[0], dict):
+            final_interest = risks_after[0].get("interest")
+        print(
+            f"[BEACON:interest] validate_and_clean_exit | "
+            f"final_risk0_interest={final_interest!r}"
+        )
+
         return data
 
     @staticmethod
@@ -1589,7 +1649,7 @@ The overall JSON structure, section names, and nesting MUST follow this example 
         legacy_interest = data.pop("interest", None)
         risks = data.get("risk")
         if isinstance(risks, list) and risks:
-            for risk in risks:
+            for risk_idx, risk in enumerate(risks):
                 if not isinstance(risk, dict):
                     continue
                 interest = risk.get("interest")
@@ -1597,6 +1657,11 @@ The overall JSON structure, section names, and nesting MUST follow this example 
                     risk["interest"] = dict(legacy_interest)
                     interest = risk["interest"]
                 if isinstance(interest, dict) and interest.get("has_loan") == "No":
+                    print(
+                        f"[BEACON:interest] normalize_strip_interest | "
+                        f"risk_index={risk_idx} | "
+                        f"before={interest!r} | after={{'has_loan': 'No'}}"
+                    )
                     risk["interest"] = {"has_loan": "No"}
         elif isinstance(legacy_interest, dict):
             if legacy_interest.get("has_loan") == "No":

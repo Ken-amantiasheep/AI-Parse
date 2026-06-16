@@ -125,7 +125,7 @@
           "type": "string",
           "mode": "dropdown",
           "required": true,
-          "extraction_logic": "Identify risk type from Quote text. Quote commonly contains indicators like condominium/homeowner. Normalize to one allowed option value.",
+          "extraction_logic": "Identify risk type from Quote text. Quote commonly contains indicators like condominium, homeowner, tenant/renters. Normalize to one allowed option value (e.g. 'Tenants' -> 'Tenant', 'Condominiums' -> 'Condominium').",
           "description": "Property risk type",
           "options": [
             "Condominium",
@@ -708,6 +708,204 @@
               "required": true,
               "extraction_logic": "Quote -> Policy Information -> Dwelling Value. Read the value above the label (e.g. '$728,700'). Strip currency symbols and commas; output the numeric amount only. If blank or unavailable, output null.",
               "description": "Rebuilding cost (CAD, numeric amount only)"
+            },
+            "interest": {
+              "required": true,
+              "extraction_logic": "All subfields under interest must be sourced from Application (not Quote).",
+              "description": "Interested party information",
+              "fields": {
+                "has_loan": {
+                  "type": "string",
+                  "mode": "radio",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract whether there is an interested party/loan/credit/mortgage associated with this risk. Must be 'Yes' or 'No'.",
+                  "description": "Whether there is an interested party",
+                  "options": [
+                    "Yes",
+                    "No"
+                  ]
+                },
+                "type_of_interest": {
+                  "type": "string",
+                  "mode": "dropdown",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract type of interest. Select one option from the configured list.",
+                  "description": "Type of interest",
+                  "options": [
+                    "Additional Named Insured",
+                    "Line of Credit",
+                    "Mortgagee"
+                  ]
+                },
+                "company_name": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract interested party company or organization name.",
+                  "description": "Interested party name"
+                },
+                "address": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract full mailing address for the interested party.",
+                  "description": "Interested party address"
+                },
+                "postal_code": {
+                  "type": "string",
+                  "mode": "free_text",
+                  "required": true,
+                  "extraction_logic": "Application source only. Extract Canadian postal code for the interested party.",
+                  "description": "Interested party postal code"
+                }
+              }
+            }
+          }
+        },
+        "Tenant": {
+          "description": "Independent template for Tenant only.",
+          "fields": {
+            "use": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "If there is only one property/risk, set to 'Principal'. If multiple properties/risks exist, follow Quote assignment for each property (e.g., Principal vs Secondary).",
+              "description": "Property use type (fixed)",
+              "options": [
+                "Principal",
+                "Rental",
+                "Seasonal",
+                "Secondary"
+              ]
+            },
+            "owned_resided_since": {
+              "type": "string",
+              "mode": "date",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Occupied Since. Output in YYYY-MM-DD format.",
+              "description": "Client has owned/resided at this location since (YYYY-MM-DD)"
+            },
+            "fire_hydrant_within_300m": {
+              "type": "string",
+              "mode": "radio",
+              "required": true,
+              "extraction_logic": "Default to 'Yes' for Tenant unless explicit contrary evidence is present.",
+              "description": "Fire hydrant within 300m",
+              "options": [
+                "Yes",
+                "No"
+              ]
+            },
+            "fire_hall": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Default to 'Within 13km' for Tenant unless explicit contrary evidence is present.",
+              "description": "Fire hall distance category",
+              "options": [
+                "Within 13km",
+                "More than 13km"
+              ]
+            },
+            "building_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Structure. Use keyword/fuzzy matching to map source text to one allowed Tenant option.",
+              "description": "Building type",
+              "options": [
+                "Apartment Including Commercial Exposure",
+                "High Rise",
+                "Other",
+                "Rowhouse or Townhouse - end row",
+                "Rowhouse or Townhouse - inside row"
+              ]
+            },
+            "construction_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Construction. Use keyword/fuzzy matching to map source text to one allowed option.",
+              "description": "Construction type",
+              "options": [
+                "Aluminium",
+                "Fire Resistive",
+                "Frame (wood)",
+                "Masonry",
+                "Other",
+                "Veneer"
+              ]
+            },
+            "number_of_units_in_building": {
+              "type": "number",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Read from Application first. If not found in Application, output null.",
+              "description": "Number of units in building"
+            },
+            "occupancy_status": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Default to 'Occupied' for Tenant unless explicit contrary evidence is present.",
+              "description": "Occupancy status",
+              "options": [
+                "Occupied",
+                "Vacant"
+              ]
+            },
+            "smokers_reside_at_this_location": {
+              "type": "string",
+              "mode": "radio",
+              "required": true,
+              "extraction_logic": "From Quote header/intro, read 'Smoke-Free Household'. If source is 'Yes', output 'No' for this field. If source is 'No', output 'Yes'.",
+              "description": "Smokers reside at this location",
+              "options": [
+                "Yes",
+                "No"
+              ]
+            },
+            "year_built": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "Extract from Dwelling Information -> Year Dwelling Build. Output YYYY.",
+              "description": "Year built (YYYY)"
+            },
+            "primary_heat_type": {
+              "type": "string",
+              "mode": "dropdown",
+              "required": true,
+              "extraction_logic": "Quote -> Primary Heating -> Type. Read the value above the label (e.g. 'Central Furnace - Gas'). Use LLM fuzzy matching to map source text to one allowed option. Example: 'Central Furnace - Gas' -> 'Forced Air Furnace'.",
+              "description": "Primary heat type",
+              "options": [
+                "Approved Combination Furnace",
+                "Baseboard Heater",
+                "Fireplace",
+                "Fixed Space Heater",
+                "Forced Air Furnace",
+                "Geo Thermal Heat Pump",
+                "Gravity Furnace",
+                "Heat Pump",
+                "Hot Water - Boiler",
+                "None",
+                "Other",
+                "Outdoor Hot Water Heater",
+                "Pellet Stove",
+                "Portable Space Heaters",
+                "Radiant Heat Panels or Film",
+                "Solar Heater",
+                "Wood Heat Furnace",
+                "Wood Stove"
+              ]
+            },
+            "security_or_mitigation_system": {
+              "type": "string",
+              "mode": "free_text",
+              "required": true,
+              "extraction_logic": "From security section, inspect Burglar Alarm, Fire Alarm, and 24 Hour Video System. Ignore values that indicate none/no/blank. If all three are none/no/blank, output null. Otherwise output a single string that concatenates only present concrete items, e.g. 'Burglar Alarm: XXXX, Fire Alarm: XXXX'.",
+              "description": "Security or mitigation system",
+              "options": []
             },
             "interest": {
               "required": true,

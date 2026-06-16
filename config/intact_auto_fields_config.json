@@ -187,21 +187,21 @@
         },
         "interest": {
           "required": true,
-          "description": "Per-vehicle interest and financing (lienholder/lessor) for THIS risk only",
+          "description": "Per-vehicle loan/lease/lienholder (interest) for THIS risk only. ⚠️ APPLICATION FORM ONLY — NEVER Quote, NEVER MVR, NEVER Autoplus. On Application (OAF 1 Section 3 'Described Automobile'), find THIS vehicle's Auto No. row under 'Lienholder Name & Postal Address' (Auto No. 1 = first risk, etc.). Quote '#23a Lienholder Protection' is insurance coverage, NOT the lender — ignore it for interest.",
           "fields": {
             "has_loan": {
               "type": "string",
               "mode": "radio",
               "required": true,
-              "extraction_logic": "For THIS specific vehicle, extract from documents whether it has a loan, interest, finance, or lease. IMPORTANT: If this field is 'No', then all other fields in this vehicle's `interest` object (type_of_interest, company_name, address, postal_code) must NOT be included in the output JSON.",
-              "description": "Whether this vehicle has a loan or interest or finance or lease",
+              "extraction_logic": "For THIS specific vehicle, determine whether it has a loan, finance, lien, or lease. ⚠️ APPLICATION FORM ONLY — DO NOT read or use the Quote document for this field (Quote does not list the lender; '#23a Lienholder Protection' is a coverage line, not a loan). In Application_Form Section 3 (Described Automobile), find 'Lienholder Name & Postal Address' and match THIS vehicle to its Auto No. (first vehicle = Auto No. 1, second = Auto No. 2, ...). If that Application row contains a finance company name and/or mailing address (e.g. '1. TD Auto Finance - PO Box 4086, Station A, Toronto, ON, M5W 5K3'), has_loan MUST be 'Yes'. Do NOT output has_loan='No' when that Application row is populated. Only output 'No' when the Application lienholder row for this Auto No. is blank/empty. IMPORTANT: If has_loan is 'No', omit type_of_interest, company_name, address, postal_code from this interest object.",
+              "description": "Whether this vehicle has a loan or interest or finance or lease (Yes when Application lienholder row is filled)",
               "options": ["Yes", "No"]
             },
             "type_of_interest": {
               "type": "string",
               "mode": "dropdown",
               "required": true,
-              "extraction_logic": "For THIS vehicle, extract from documents. If the arrangement is a 'lease', select 'Lessor'. For all other cases (loan, finance, lien, etc.), select 'Lienholder'. Only include this field if has_loan is 'Yes'.",
+              "extraction_logic": "For THIS vehicle, extract from Application_Form ONLY (never Quote). On Application Section 3, if the vehicle is a lease, select 'Lessor'; for loan/finance/lien, select 'Lienholder'. Only include this field if has_loan is 'Yes'.",
               "description": "Type of interest for interested party",
               "options": ["Lessor", "Lienholder"]
             },
@@ -209,7 +209,7 @@
               "type": "string",
               "mode": "dropdown",
               "required": true,
-              "extraction_logic": "For THIS vehicle, extract the lienholder/lessor company name from the application form (e.g., the 'Lienholder Name & Postal Address' section that applies to this VIN/vehicle). Match it to the corporate list using fuzzy matching (e.g., 'BMO' matches 'Bank of Montreal', 'TD bank' or 'TD finance' matches 'TD Auto Finance', 'RBC' matches 'Royal Bank of Canada', 'Scotiabank' matches 'Scotia Dealer Advantage'). If a match is found, use the exact name from the list. If no match is found, output the actual company name found in documents (even if it's not in the list). Only include this field if has_loan is 'Yes'.",
+              "extraction_logic": "For THIS vehicle, extract the lienholder/lessor company name from the Application ONLY — the 'Lienholder Name & Postal Address' row for this vehicle's Auto No. (e.g. Auto No. 1 → 'TD Auto Finance' at the start of that cell). The company name is the finance institution — NEVER the applicant/driver name (e.g. NOT 'TARIQ, HUMAIL'). Match to the corporate list using fuzzy matching. If no list match, output the name exactly as printed on Application. Only when has_loan is 'Yes'.",
               "description": "Company name from corporate list",
               "options": ["Acura Financial Services", "Alphera Financial Services", "Audi Finance Services", "Bank of Montreal", "Banque Nationale Du Canada", "Banque Royal Prets Auto", "BMW Financial Services", "CIBC", "Edenpark", "FCA Canada Inc.", "Fédération des Caisses Desjardins du Québec", "Ford Credit Canada", "General Bank Of Canada", "Genesis Finance", "GM Financial", "Honda Finance Services", "Hyundai Motor Finance", "IA Financement Auto", "Kia Finance", "Lendcare Capital Inc.", "Libro Credit Union", "Lincoln Automotive Financial Services", "Manulife Bank Of Canada", "Mercedes-Benz Financial Services", "Mini Financial Services Canada", "Nissan Canada Inc.", "Porsche Financial Services Canada", "Royal Bank of Canada", "Scotia Dealer Advantage", "Services Financiers Mini Cooper", "TD Auto Finance", "Toyota Credit Canada", "Tricor Lease Finance Corp.", "Volkswagen Credit Canada Inc."]
             },
@@ -217,14 +217,14 @@
               "type": "string",
               "mode": "free_text",
               "required": true,
-              "extraction_logic": "For THIS vehicle, extract the complete lienholder/lessor postal address from the application form's 'Lienholder Name & Postal Address' section (or equivalent for this vehicle). Capture the FULL address text exactly as shown after the company name—PO Box / street, station, city, and province (e.g., 'PO Box 1833 Station M Calgary AB'). Do NOT include the company name. Do NOT include the postal code in this field (put it in interest.postal_code). Only include this field if has_loan is 'Yes'.",
+              "extraction_logic": "For THIS vehicle, extract the complete lienholder/lessor mailing address from the Application ONLY — the 'Lienholder Name & Postal Address' row for this Auto No. Capture the FULL address exactly as shown after the company name. Formats vary: PO Box, street address, station, suite, city, province (e.g. 'PO Box 4086, Station A, Toronto, ON' or '123 Main St, Suite 400, Calgary, AB'). Do NOT use Quote/MVR/Autoplus for this field. Do NOT include the company name. Do NOT include the postal code here (use interest.postal_code). Only include this field if has_loan is 'Yes'.",
               "description": "Full postal address of the lienholder/lessor (without postal code)"
             },
             "postal_code": {
               "type": "string",
               "mode": "free_text",
               "required": true,
-              "extraction_logic": "For THIS vehicle, extract the Canadian postal code from the lienholder/lessor address line (format X9X9X9, e.g., 'T2P 2L8' → 'T2P2L8' or keep as printed). If the application shows the code at the end of the address line, copy it here. Only include this field if has_loan is 'Yes'.",
+              "extraction_logic": "For THIS vehicle, extract the Canadian postal code from the Application lienholder row only (format X9X9X9, e.g. 'M5W 5K3' → 'M5W5K3'). Only include this field if has_loan is 'Yes'.",
               "description": "Lienholder/lessor postal code (Canadian format), separate from address"
             }
           }

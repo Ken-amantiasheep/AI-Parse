@@ -10,6 +10,7 @@ from utils.company_validators import get_required_top_level_fields
 from utils.company_postprocess import pipeline as company_postprocess_pipeline
 from utils.company_postprocess.intact_auto import (
     _build_mvr_name_index,
+    _extract_lienholders_by_auto_no,
     _parse_mvr_name,
     _parse_vertical_usage_block,
 )
@@ -661,6 +662,40 @@ def test_company_routing_resolution():
     assert company_config.resolve_fields_config_name("Aviva", routing) == "aviva_fields_config.json"
 
 
+def test_intact_property_tenant_risk_template_is_independent():
+    import json
+    from pathlib import Path
+
+    cfg = json.loads(
+        Path("config/intact_property_fields_config.json").read_text(encoding="utf-8")
+    )
+    tenant_cfg = json.loads(
+        Path("config/intact_property/risk_tenant_fields.json").read_text(encoding="utf-8")
+    )
+    condo_cfg = json.loads(
+        Path("config/intact_property/risk_condominium_fields.json").read_text(encoding="utf-8")
+    )
+
+    fbrt = cfg["fields"]["risk"]["fields_by_risk_type"]
+    assert "Tenant" in fbrt
+    assert fbrt["Tenant"]["description"] == "Independent template for Tenant only."
+    assert tenant_cfg["description"] == fbrt["Tenant"]["description"]
+    assert tenant_cfg["fields"].keys() == fbrt["Tenant"]["fields"].keys()
+
+    # Copied from condo for now, but stored in separate files for independent edits.
+    assert tenant_cfg["fields"].keys() == condo_cfg["fields"].keys()
+    assert "Tenant" in tenant_cfg["fields"]["fire_hydrant_within_300m"]["extraction_logic"]
+    assert "Condominium" not in tenant_cfg["fields"]["fire_hydrant_within_300m"]["extraction_logic"]
+
+    generator = _make_generator(
+        "Intact_property",
+        fields_config=_load_json_config("intact_property_fields_config.json"),
+    )
+    prompt = generator._build_prompt({})
+    assert "Template for risk_type = Tenant:" in prompt
+    assert "Default to 'Yes' for Tenant unless explicit contrary evidence" in prompt
+
+
 def test_company_schema_validation_toggle_keeps_legacy_by_default():
     generator = _make_generator(
         "Intact_Auto",
@@ -755,6 +790,135 @@ Birth Date : 21/11/1992
     cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
     assert cleaned["applicant_information"]["last_name"] == "HE"
     assert cleaned["applicant_information"]["first_name"] == "XINYI"
+
+
+def test_extract_lienholders_by_auto_no_from_application_table():
+    application = """
+Auto No. Lienholder Name & Postal Address
+1 TD Auto Finance PO Box 4086, Station A, , Toronto, ON, M5W 5K3
+2
+3
+"""
+    rows = _extract_lienholders_by_auto_no(application)
+    assert 1 in rows
+    assert rows[1]["company_name"] == "TD Auto Finance"
+    assert "PO Box 4086" in rows[1]["address"]
+    assert rows[1]["postal_code"] == "M5W5K3"
+    assert 2 not in rows
+
+
+def test_extract_lienholders_split_auto_no_and_body_lines():
+    application = """
+Auto No.
+Lienholder Name & Postal Address
+1
+TD Auto Finance PO Box 4086, Station A, , Toronto, ON, M5W 5K3
+2
+3
+"""
+    rows = _extract_lienholders_by_auto_no(application)
+    assert rows[1]["company_name"] == "TD Auto Finance"
+    assert rows[1]["postal_code"] == "M5W5K3"
+
+
+def test_extract_lienholders_rejects_applicant_name_as_company():
+    application = """
+Auto Lienholder Name & Postal Address
+No.
+1. TARIQ, HUMAIL T06043500861205 1986 12 5 M M
+1. TD Auto Finance - PO Box 4086, Station A, , Toronto, ON, M5W5K3
+2.
+3.
+"""
+    rows = _extract_lienholders_by_auto_no(application)
+    assert rows[1]["company_name"] == "TD Auto Finance"
+    assert "PO Box 4086" in rows[1]["address"]
+    assert rows[1]["postal_code"] == "M5W5K3"
+
+
+def test_extract_lienholders_oaf_pp_dotted_row_from_real_pdf_extract():
+    """Reproduces AUTOA_PP.PDF text layout seen in HUMAIL TARIQ beacon output."""
+    application = """
+Yes No
+3. km Yes No Yes No Yes No
+Auto Lienholder Name & Postal Address
+No.
+1. TD Auto Finance - PO Box 4086, Station A, , Toronto, ON, M5W5K3
+2.
+3.
+Is the applicant both the Registered
+"""
+    rows = _extract_lienholders_by_auto_no(application)
+    assert rows[1]["company_name"] == "TD Auto Finance"
+    assert "PO Box 4086" in rows[1]["address"]
+    assert rows[1]["postal_code"] == "M5W5K3"
+    assert 8 not in rows
+
+
+def test_extract_lienholders_without_section_header():
+    application = """
+Some other application text
+1
+TD Auto Finance
+PO Box 4086, Station A, Toronto, ON, M5W 5K3
+"""
+    rows = _extract_lienholders_by_auto_no(application)
+    assert rows[1]["company_name"] == "TD Auto Finance"
+    assert rows[1]["postal_code"] == "M5W5K3"
+
+
+def test_intact_auto_fills_interest_from_application_lienholder_row():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [
+            {
+                "serial_number": "2T36CRAV9TW040979",
+                "interest": {"has_loan": "No"},
+            }
+        ],
+    }
+    documents = {
+        "Application_Form": """
+Auto No. Lienholder Name & Postal Address
+1 TD Auto Finance PO Box 4086, Station A, , Toronto, ON, M5W 5K3
+""",
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    interest = cleaned["risk"][0]["interest"]
+    assert interest["has_loan"] == "Yes"
+    assert interest["type_of_interest"] == "Lienholder"
+    assert interest["company_name"] == "TD Auto Finance"
+    assert "PO Box 4086" in interest["address"]
+    assert interest["postal_code"] == "M5W5K3"
+
+
+def test_intact_auto_interest_postprocess_preserves_llm_address():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [
+            {
+                "interest": {
+                    "has_loan": "No",
+                    "company_name": "TARIQ, HUMAIL T06043500861205",
+                    "address": "100 King St W, Toronto, ON",
+                    "postal_code": "M5X1A1",
+                },
+            }
+        ],
+    }
+    documents = {
+        "Application_Form": """
+Auto Lienholder Name & Postal Address
+No.
+1. TD Auto Finance - PO Box 4086, Station A, , Toronto, ON, M5W 5K3
+""",
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    interest = cleaned["risk"][0]["interest"]
+    assert interest["has_loan"] == "Yes"
+    assert interest["company_name"] == "TD Auto Finance"
+    assert interest["address"] == "100 King St W, Toronto, ON"
+    assert interest["postal_code"] == "M5X1A1"
 
 
 def test_intact_auto_applicant_name_from_mvr_overwrites_application():
