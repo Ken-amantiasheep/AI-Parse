@@ -347,6 +347,7 @@ Before extracting `has_loan`, `type_of_interest`, `company_name`, `address`, or 
 - If multiple vehicles/risks are found, include ALL of them in `risk` as separate array elements in the same order as the source document.
 - Inside each `risk` element, `interest` MUST be a JSON object with sub-keys such as `has_loan`, and when `has_loan` is `Yes` also `type_of_interest`, `company_name`, `address`, and `postal_code`. Never replace `interest` with one string that merges bank name and address.
 - **`risk[].interest` = Application_Form ONLY** (never Quote/MVR/Autoplus). Extract `address` and `postal_code` from the Application lienholder row (any mailing format).
+- **`second_applicant_information`**: Include ONLY when Application Section 1 lists two applicant names joined by `&` (e.g. `Dang, Thanh Tam & Nguyen, Thi My Trinh`). Put the first person in `applicant_information` and the second in `second_applicant_information` (same field set). Omit `second_applicant_information` entirely for a single applicant.
 
 """
 

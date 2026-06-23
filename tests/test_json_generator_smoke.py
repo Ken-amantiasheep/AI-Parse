@@ -1197,6 +1197,165 @@ def test_intact_auto_additional_coverages_keeps_zero_limit_entries():
     ]
 
 
+def test_intact_auto_additional_coverages_backfills_quote_row_values():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "coverages": {
+            "additional_coverages": [
+                "#39 Responsible Driver Guarantee",
+                "Minor Conviction Protection",
+                "#23a Lienholder Protection",
+                "#35 Emergency Service",
+            ]
+        }
+    }
+    documents = {
+        "Quote": """
+Operator                              PRIN.     TOTALS
+#39 Responsible Driver Guarantee       115        115
+Minor Conviction Protection             40         40
+#23a Lienholder Protection             Inc.        0
+#35 Emergency Service
+"""
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["coverages"]["additional_coverages"] == [
+        "#39 Responsible Driver Guarantee: 115",
+        "Minor Conviction Protection: 40",
+        "#23a Lienholder Protection: 0",
+        "#35 Emergency Service",
+    ]
+
+
+def test_intact_auto_additional_coverages_prefers_limit_column_over_premium():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "coverages": {
+            "additional_coverages": [
+                "Bodily Injury / Prop. Damage: 2000000",
+                "Property Damage: 2000000",
+                "Direct Compensation: 0",
+                "Accident Benefits: 778",
+                "All Perils: 1588",
+                "#20 Loss Of Use: 95",
+                "#23a Lienholder Protection: 0",
+                "#27 Liab to Unowned Veh.: 55",
+                "#44 Family Protection: 29",
+                "Minor Conviction Protection: 0",
+            ]
+        }
+    }
+    documents = {
+        "Quote": """
+Operator                              PRIN.     TOTALS
+Bodily Injury / Prop. Damage          2 M       910        910
+Property Damage                       2 M                  0
+Direct Compensation                   0         1,042      1,042
+Accident Benefits                               778        778
+All Perils                            1,000     1,588      1,588
+Uninsured Automobile                                      0
+#20 Loss Of Use                       5,000     95         95
+#23a Lienholder Protection            Inc.      0
+#27 Liab to Unowned Veh.              75K       55         55
+#44 Family Protection                 2 M       29         29
+#39 Responsible Driver Guarantee                         0
+Minor Conviction Protection                              0
+"""
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["coverages"]["additional_coverages"] == [
+        "Bodily Injury / Prop. Damage: 2000000",
+        "Property Damage: 2000000",
+        "Direct Compensation: 0",
+        "Accident Benefits: 778",
+        "All Perils: 1000",
+        "#20 Loss Of Use: 5000",
+        "#23a Lienholder Protection: 0",
+        "#27 Liab to Unowned Veh.: 75K",
+        "#44 Family Protection: 2000000",
+        "Minor Conviction Protection: 0",
+    ]
+
+
+def test_intact_auto_winter_tires_from_quote_discount_single_vehicle():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [
+            {
+                "winter_tires": "No",
+            }
+        ],
+        "coverages": {"additional_coverages": []},
+    }
+    documents = {
+        "Quote": """
+1 of 1 | 2025 HONDA CR-V TOURING HEV 4DR AWD
+DIS
+Discount - Hybrid and Electric Vehicle included
+Discount - Winter Tire included
+"""
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["risk"][0]["winter_tires"] == "Yes"
+
+
+def test_intact_auto_winter_tires_no_when_quote_discount_absent():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [
+            {
+                "winter_tires": "Yes",
+            }
+        ],
+        "coverages": {"additional_coverages": []},
+    }
+    documents = {
+        "Quote": """
+1 of 1 | 2025 HONDA CR-V TOURING HEV 4DR AWD
+DIS
+Discount - Hybrid and Electric Vehicle included
+Discount - Graduated License Holder included
+"""
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["risk"][0]["winter_tires"] == "No"
+
+
+def test_intact_auto_winter_tires_from_quote_discount_per_vehicle():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [
+            {"winter_tires": "No"},
+            {"winter_tires": "Yes"},
+        ],
+        "coverages": {"additional_coverages": []},
+    }
+    documents = {
+        "Quote": """
+1 of 2 | 2025 HONDA CR-V TOURING HEV 4DR AWD
+DIS
+Discount - Winter Tire included
+
+2 of 2 | 2022 TOYOTA COROLLA
+DIS
+Discount - Hybrid and Electric Vehicle included
+"""
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["risk"][0]["winter_tires"] == "Yes"
+    assert cleaned["risk"][1]["winter_tires"] == "No"
+
+
 def test_parse_vertical_usage_block_reads_daily_km_above_label():
     quote = """
 Pleasure
@@ -1523,6 +1682,80 @@ def test_intact_auto_applicant_information_includes_contact_and_address_fields()
     app_fields = cfg["fields"]["applicant_information"]["fields"]
     for key in ("postal_code", "full_address", "phone", "email"):
         assert key in app_fields
+    assert "second_applicant_information" in cfg["fields"]
+    assert cfg["fields"]["second_applicant_information"]["required"] is False
+    second_fields = cfg["fields"]["second_applicant_information"]["fields"]
+    assert set(second_fields.keys()) == set(app_fields.keys())
+
+
+def test_intact_auto_dual_applicant_splits_names_from_application():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {
+            "last_name": "COMBINED",
+            "first_name": "WRONG",
+            "postal_code": "N2E2J2",
+            "full_address": "120 Devonglen Dr, Kitchener, ON",
+            "phone": "(902) 979-1349",
+        },
+        "second_applicant_information": {},
+        "driver": [{"licence_class": "G", "licence_number": "D11111111111111"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "Application_Form": """
+1 Applicant's Name & Primary Address
+Name and Address
+Dang, Thanh Tam & Nguyen, Thi My Trinh (DATH11)
+120 Devonglen Dr
+Kitchener
+Postal Code N2E 2J2
+Phone No. Home (902) 979-1349
+""",
+        "MVR_1": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/07 ***\n"
+            "Name: DANG, THANH TAM\n"
+            "Licence: D11111111111111\n"
+        ),
+        "MVR_2": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/07 ***\n"
+            "Name: NGUYEN, THI MY TRINH\n"
+            "Licence: N22222222222222\n"
+        ),
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    app = cleaned["applicant_information"]
+    second = cleaned["second_applicant_information"]
+    assert app["last_name"] == "DANG"
+    assert app["first_name"] == "THANH TAM"
+    assert second["last_name"] == "NGUYEN"
+    assert second["first_name"] == "THI MY TRINH"
+    assert second["postal_code"] == "N2E2J2"
+    assert second["full_address"] == "120 Devonglen Dr, Kitchener, ON"
+    assert second["phone"] == "9029791349"
+
+
+def test_intact_auto_removes_second_applicant_when_single_name():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {"last_name": "SINGH", "first_name": "NAVDEEP"},
+        "second_applicant_information": {"last_name": "SHOULD", "first_name": "DROP"},
+        "driver": [{"licence_class": "G"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "Application_Form": """
+1 Applicant's Name & Primary Address
+Name and Address
+SINGH, NAVDEEP
+""",
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert "second_applicant_information" not in cleaned
 
 
 def test_intact_auto_fields_prompt_expands_risk_interest_object():
@@ -1565,8 +1798,14 @@ def test_get_applicant_filename_auto_company_keeps_original_name():
 
 def test_get_required_top_level_fields_from_config():
     fallback = ["applicant_information", "drivers_information"]
-    fields_config = {"fields": {"a": {}, "b": {}}}
-    assert get_required_top_level_fields("Intact_Auto", fields_config, fallback) == ["a", "b"]
+    fields_config = {
+        "fields": {
+            "a": {"required": True},
+            "b": {"required": False},
+            "c": {},
+        }
+    }
+    assert get_required_top_level_fields("Intact_Auto", fields_config, fallback) == ["a", "c"]
 
 
 def test_get_required_top_level_fields_fallback_when_missing_fields():

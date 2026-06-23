@@ -65,6 +65,7 @@ _DRIVER_IDENTITY_KEYS = (
     "marital_status",
 )
 _APPLICANT_ADDRESS_KEYS = ("postal_code", "full_address")
+_APPLICANT_CONTACT_KEYS = _APPLICANT_ADDRESS_KEYS + ("phone", "email")
 _DRIVER_ADDRESS_KEYS = _APPLICANT_ADDRESS_KEYS
 _ASSIGNMENT_COMMON_KEYS = (
     "type_of_use",
@@ -118,6 +119,165 @@ def _normalize_intact_applicant_information(data: Dict) -> Dict:
     applicant = data.get("applicant_information")
     if isinstance(applicant, dict):
         _normalize_applicant_phone(applicant)
+    second = data.get("second_applicant_information")
+    if isinstance(second, dict):
+        _normalize_applicant_phone(second)
+    return data
+
+
+def _strip_parenthetical_suffix(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", text).strip()
+
+
+def _split_dual_applicant_name_line(line: str):
+    """
+    Split 'LAST, FIRST & LAST, FIRST' into two raw name strings.
+    Returns (left_raw, right_raw) or None.
+    """
+    if not isinstance(line, str) or "&" not in line:
+        return None
+    parts = re.split(r"\s*&\s*", line, maxsplit=1)
+    if len(parts) != 2:
+        return None
+    left = _strip_parenthetical_suffix(parts[0].strip())
+    right = _strip_parenthetical_suffix(parts[1].strip())
+    if not left or not right:
+        return None
+    if not _parse_mvr_name(left) or not _parse_mvr_name(right):
+        return None
+    return left, right
+
+
+def _extract_dual_applicant_names_from_application(documents: Optional[Dict[str, str]]):
+    """Return (name1_raw, name2_raw) when Application lists two '&'-joined applicant names."""
+    app_text = _get_application_document_text(documents)
+    if not app_text:
+        return None
+
+    for line in app_text.splitlines():
+        split = _split_dual_applicant_name_line(line.strip())
+        if split:
+            return split
+
+    return None
+
+
+def _sync_shared_applicant_contact_fields(primary: Dict, secondary: Dict) -> None:
+    """Copy shared household address/phone/email from primary to secondary when missing."""
+    if not isinstance(primary, dict) or not isinstance(secondary, dict):
+        return
+    for key in _APPLICANT_CONTACT_KEYS:
+        if _is_missing(secondary.get(key)) and not _is_missing(primary.get(key)):
+            secondary[key] = primary[key]
+
+
+def _apply_dual_applicant_from_application(data: Dict, documents: Optional[Dict[str, str]]) -> Dict:
+    """
+    When Application Section 1 lists two names joined by '&', populate
+    applicant_information (first) and second_applicant_information (second).
+    Otherwise remove second_applicant_information.
+    """
+    if not isinstance(data, dict):
+        return data
+
+    dual = _extract_dual_applicant_names_from_application(documents)
+    if not dual:
+        data.pop("second_applicant_information", None)
+        return data
+
+    name1_raw, name2_raw = dual
+    parsed1 = _parse_mvr_name(name1_raw)
+    parsed2 = _parse_mvr_name(name2_raw)
+    if not parsed1 or not parsed2:
+        data.pop("second_applicant_information", None)
+        return data
+
+    applicant = data.get("applicant_information")
+    if not isinstance(applicant, dict):
+        applicant = {}
+        data["applicant_information"] = applicant
+
+    second = data.get("second_applicant_information")
+    if not isinstance(second, dict):
+        second = {}
+        data["second_applicant_information"] = second
+
+    applicant["last_name"] = parsed1[0]
+    applicant["first_name"] = parsed1[1]
+    second["last_name"] = parsed2[0]
+    second["first_name"] = parsed2[1]
+    _sync_shared_applicant_contact_fields(applicant, second)
+
+    print(
+        "[INFO] Split dual Intact Auto applicants from Application: "
+        f"{parsed1[1]} {parsed1[0]} & {parsed2[1]} {parsed2[0]}"
+    )
+    return data
+
+
+def _apply_mvr_name_to_second_applicant(data: Dict, documents: Optional[Dict[str, str]]) -> Dict:
+    """Overwrite second_applicant_information names from matching MVR when dual-applicant."""
+    if not isinstance(data, dict):
+        return data
+
+    second = data.get("second_applicant_information")
+    if not isinstance(second, dict):
+        return data
+
+    mvr_index = _build_mvr_name_index(documents)
+    if not mvr_index:
+        return data
+
+    applicant_info = data.get("applicant_information") if isinstance(data.get("applicant_information"), dict) else {}
+    primary_last = applicant_info.get("last_name")
+    primary_first = applicant_info.get("first_name")
+
+    # Prefer MVR whose name matches the second applicant but not the primary applicant.
+    second_last = second.get("last_name")
+    second_first = second.get("first_name")
+    sl = second_last.strip().upper() if isinstance(second_last, str) else ""
+    sf = second_first.strip().upper() if isinstance(second_first, str) else ""
+    pl = primary_last.strip().upper() if isinstance(primary_last, str) else ""
+    pf = primary_first.strip().upper() if isinstance(primary_first, str) else ""
+
+    for entry in mvr_index:
+        mvr_last, mvr_first = entry[1], entry[2]
+        ml = mvr_last.strip().upper() if isinstance(mvr_last, str) else ""
+        mf = mvr_first.strip().upper() if isinstance(mvr_first, str) else ""
+        if sl and sf and ml == sl and mf == sf and not (ml == pl and mf == pf):
+            second["last_name"] = mvr_last
+            second["first_name"] = mvr_first
+            return data
+        upper_content = entry[4]
+        if sl and sf and sl in upper_content and sf in upper_content:
+            if not (pl and pf and pl in upper_content and pf in upper_content):
+                second["last_name"] = mvr_last
+                second["first_name"] = mvr_first
+                return data
+
+    drivers = data.get("driver")
+    if isinstance(drivers, list) and len(drivers) >= 2 and isinstance(drivers[1], dict):
+        parsed = _find_mvr_name_for_driver(
+            drivers[1],
+            second,
+            is_primary=True,
+            driver_idx=1,
+            mvr_index=mvr_index,
+        )
+        if parsed:
+            last_name, first_name = parsed
+            if _is_valid_mvr_name_part(last_name) and _is_valid_mvr_name_part(first_name):
+                if not (
+                    isinstance(primary_last, str)
+                    and isinstance(primary_first, str)
+                    and last_name.strip().upper() == pl
+                    and first_name.strip().upper() == pf
+                ):
+                    second["last_name"] = last_name
+                    second["first_name"] = first_name
+
     return data
 
 
@@ -954,6 +1114,67 @@ def _get_quote_or_full_document_text(documents: Optional[Dict[str, str]]) -> str
     return "\n".join(v for v in documents.values() if isinstance(v, str))
 
 
+_WINTER_TIRE_DISCOUNT_PATTERN = re.compile(
+    r"Discount\s*-\s*Winter\s+Tires?\s+included",
+    flags=re.IGNORECASE,
+)
+
+
+def _quote_has_winter_tire_discount(text: str) -> bool:
+    return bool(_WINTER_TIRE_DISCOUNT_PATTERN.search(text or ""))
+
+
+def _extract_winter_tire_discount_by_vehicle(documents: Optional[Dict[str, str]]) -> Dict[int, bool]:
+    """
+    Determine winter_tires from Quote DIS discount lines.
+
+    Rule: Winter Tire discount present for vehicle N -> Yes; absent -> No.
+    Supports headers like "Vehicle 1 of 2" and "1 of 2 | 2025 HONDA ...".
+    """
+    quote = _get_quote_document_text(documents)
+    if not quote:
+        return {}
+
+    vehicle_pattern = re.compile(
+        r"(?im)^\s*(?:Vehicle\s*)?(\d+)\s+of\s+\d+(?:\s*\||\b)"
+    )
+    matches = list(vehicle_pattern.finditer(quote))
+    if not matches:
+        return {1: _quote_has_winter_tire_discount(quote)}
+
+    result: Dict[int, bool] = {}
+    for idx, match in enumerate(matches):
+        vehicle_no = int(match.group(1))
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(quote)
+        block = quote[match.start() : end]
+        result[vehicle_no] = _quote_has_winter_tire_discount(block)
+    return result
+
+
+def _normalize_winter_tires_from_quote_discount(data: Dict, documents: Optional[Dict[str, str]]) -> Dict:
+    """Set risk[].winter_tires from Quote 'Discount - Winter Tire included' presence."""
+    if not isinstance(data, dict):
+        return data
+
+    risks = data.get("risk")
+    if isinstance(risks, dict):
+        risks = [risks]
+        data["risk"] = risks
+    if not isinstance(risks, list) or not risks:
+        return data
+
+    winter_by_vehicle = _extract_winter_tire_discount_by_vehicle(documents)
+    if not winter_by_vehicle:
+        return data
+
+    for idx, risk in enumerate(risks):
+        if not isinstance(risk, dict):
+            continue
+        has_discount = winter_by_vehicle.get(idx + 1, False)
+        risk["winter_tires"] = "Yes" if has_discount else "No"
+    return data
+
+
 def _extract_assignment_values_by_vehicle_from_documents(documents: Optional[Dict[str, str]]) -> Dict[int, Dict]:
     """
     Extract per-vehicle assignment usage values from Quote blocks.
@@ -1652,7 +1873,117 @@ _COVERAGE_LEGACY_ARRAY_KEYS = (
 )
 
 
-def _normalize_intact_additional_coverages(data: Dict) -> Dict:
+def _normalize_coverage_label(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
+def _format_intact_coverage_value(raw_value: str) -> Optional[str]:
+    text = str(raw_value or "").strip().replace("$", "")
+    if not text:
+        return None
+
+    unit_match = re.search(r"(\d+(?:,\d{3})*|\d+)\s*([MK])\b", text, flags=re.IGNORECASE)
+    if unit_match:
+        number = int(unit_match.group(1).replace(",", ""))
+        unit = unit_match.group(2).upper()
+        if unit == "K":
+            return f"{number}K"
+        return str(number * 1000000)
+
+    number_match = re.search(r"\b(\d+(?:,\d{3})*|\d+)(?:\.00)?\b", text)
+    if number_match:
+        return number_match.group(1).replace(",", "")
+
+    return None
+
+
+def _extract_intact_coverage_value_from_tail(tail: str) -> Optional[str]:
+    text = re.sub(r"\s+", " ", str(tail or "").strip(" :-\t"))
+    if not text:
+        return None
+
+    # Intact rows are usually: coverage name | limit/value | premium | totals.
+    # Manual entry should prefer the first limit/value column, not premium/totals.
+    # Examples:
+    #   "#20 Loss Of Use 5,000 95 95" -> 5000
+    #   "#27 Liab to Unowned Veh. 75K 55 55" -> 75K
+    #   "Accident Benefits 778 778" -> 778 (no separate limit column)
+    token_match = re.search(
+        r"\b(\d+(?:,\d{3})*|\d+)\s*(?:([MK])\b)?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if token_match:
+        number = token_match.group(1)
+        unit = token_match.group(2)
+        return _format_intact_coverage_value(f"{number}{unit or ''}")
+
+    return _format_intact_coverage_value(text)
+
+
+def _tail_after_quote_coverage_label(line: str, label: str) -> Optional[str]:
+    pattern = re.compile(re.escape(label), flags=re.IGNORECASE)
+    match = pattern.search(line or "")
+    if not match:
+        return None
+    return line[match.end() :]
+
+
+def _quote_coverage_value_for_label(quote_text: str, label: str) -> Optional[str]:
+    if not isinstance(quote_text, str) or not quote_text.strip() or not label:
+        return None
+
+    lines = [line.strip() for line in quote_text.splitlines() if line.strip()]
+    for idx, line in enumerate(lines):
+        tail = _tail_after_quote_coverage_label(line, label)
+        if tail is None and idx + 1 < len(lines):
+            tail = _tail_after_quote_coverage_label(f"{line} {lines[idx + 1]}", label)
+        if tail is None:
+            continue
+        value = _extract_intact_coverage_value_from_tail(tail)
+        if value is not None:
+            return value
+    return None
+
+
+def _supplement_missing_intact_coverage_values_from_quote(items: list, documents: Optional[Dict[str, str]]) -> list:
+    quote_text = _get_quote_document_text(documents)
+    if not quote_text or not isinstance(items, list):
+        return items
+
+    updated = []
+    seen = set()
+    valued_labels = {
+        _normalize_coverage_label(str(item).split(":", 1)[0])
+        for item in items
+        if isinstance(item, str) and ":" in item
+    }
+
+    for item in items:
+        text = str(item).strip()
+        if not text:
+            continue
+
+        label = text.split(":", 1)[0].strip()
+        label_key = _normalize_coverage_label(label)
+        if ":" not in text and label_key in valued_labels:
+            continue
+
+        value = _quote_coverage_value_for_label(quote_text, label)
+        if value is not None:
+            text = f"{label}: {value}"
+            valued_labels.add(label_key)
+        elif ":" not in text and label_key in valued_labels:
+            continue
+
+        if text not in seen:
+            seen.add(text)
+            updated.append(text)
+
+    return updated
+
+
+def _normalize_intact_additional_coverages(data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
     """
     Consolidate legacy coverage arrays into coverages.additional_coverages.
     Keep every non-empty coverage/discount entry — including ': 0' values.
@@ -1684,6 +2015,7 @@ def _normalize_intact_additional_coverages(data: Dict) -> Dict:
         coverages.pop(legacy_key, None)
 
     if merged:
+        merged = _supplement_missing_intact_coverage_values_from_quote(merged, documents)
         coverages["additional_coverages"] = merged
     elif "additional_coverages" in coverages and isinstance(coverages["additional_coverages"], list):
         coverages["additional_coverages"] = [
@@ -1691,6 +2023,10 @@ def _normalize_intact_additional_coverages(data: Dict) -> Dict:
             for x in coverages["additional_coverages"]
             if x is not None and str(x).strip()
         ]
+        coverages["additional_coverages"] = _supplement_missing_intact_coverage_values_from_quote(
+            coverages["additional_coverages"],
+            documents,
+        )
 
     return data
 
@@ -1861,13 +2197,16 @@ def apply(generator, data: Dict, documents: Optional[Dict[str, str]] = None) -> 
         print(f"[INFO] Normalized {intact_date_fixes} Intact date field(s) by configured format")
     data = generator._remove_non_intact_membership_fields(data)
     data = _apply_intact_defaults(generator, data, documents)
+    data = _apply_dual_applicant_from_application(data, documents)
     data = _apply_mvr_names_from_documents(data, documents)
+    data = _apply_mvr_name_to_second_applicant(data, documents)
     data = _normalize_assignment_usage_from_quote(data, documents)
     data = _merge_root_address_into_applicant_information(data)
     data = _normalize_intact_applicant_information(data)
     data = _promote_additional_driver_identity_blocks(data)
     data = _normalize_intact_claim_total_amount_paid(data)
-    data = _normalize_intact_additional_coverages(data)
+    data = _normalize_intact_additional_coverages(data, documents)
+    data = _normalize_winter_tires_from_quote_discount(data, documents)
     data = _apply_interest_from_application(data, documents)
     _beacon_interest(
         "before_normalize_intact_structure",

@@ -14,4 +14,10 @@ def get_required_top_level_fields(company: str, fields_config: Dict, fallback_fi
         return fallback_fields
 
     # Keep source order from config for deterministic output.
-    return list(fields.keys())
+    # Sections with required: false are omitted (e.g. second_applicant_information).
+    required = []
+    for name, cfg in fields.items():
+        if isinstance(cfg, dict) and cfg.get("required") is False:
+            continue
+        required.append(name)
+    return required

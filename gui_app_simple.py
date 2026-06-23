@@ -24,6 +24,13 @@ from version import APP_VERSION
 from app_update import run_startup_update_check
 
 
+def _default_output_dir() -> str:
+    downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+    if os.path.isdir(downloads):
+        return os.path.normpath(downloads)
+    return os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"))
+
+
 class DocumentDropFrame(tk.Frame):
     """Frame for document drop with visual feedback and drag & drop support"""
     
@@ -530,7 +537,7 @@ class IntactJSONGeneratorGUI:
         company_label.pack(side=tk.LEFT, padx=(0, 10))
         
         # Company dropdown
-        self.company_var = tk.StringVar(value="CAA_Auto")
+        self.company_var = tk.StringVar(value="Intact_property")
         company_options = ["Intact_Auto", "Intact_property", "CAA_Auto", "CAA_property", "Aviva"]
         self.company_combo = ttk.Combobox(
             company_frame,
@@ -556,7 +563,7 @@ class IntactJSONGeneratorGUI:
         )
         output_dir_label.pack(side=tk.LEFT, padx=(0, 10))
 
-        default_output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "output"))
+        default_output_dir = _default_output_dir()
         self.output_dir_var = tk.StringVar(value=default_output_dir)
         self.output_dir_entry = ttk.Entry(
             output_dir_frame,
@@ -670,6 +677,9 @@ class IntactJSONGeneratorGUI:
         )
         self.output_text.pack(fill=tk.BOTH, expand=True)
         self.log(f"Version: {APP_VERSION}")
+
+        # Apply document visibility for the default company selection.
+        self.on_company_change()
     
     def log(self, message):
         """Add message to output log"""
@@ -709,6 +719,7 @@ class IntactJSONGeneratorGUI:
             initialdir=current_dir if os.path.isdir(current_dir) else os.getcwd()
         )
         if selected_dir:
+            selected_dir = os.path.normpath(selected_dir)
             self.output_dir_var.set(selected_dir)
             self.log(f"Output folder set to: {selected_dir}")
     
@@ -803,7 +814,7 @@ class IntactJSONGeneratorGUI:
             # Save JSON
             output_dir = self.output_dir_var.get().strip()
             if not output_dir:
-                output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "output"))
+                output_dir = _default_output_dir()
             applicant_filename = generator.get_applicant_filename(json_data)
             output_path = os.path.join(output_dir, f"{applicant_filename}.json")
             output_path = generator.save_json(json_data, output_path)

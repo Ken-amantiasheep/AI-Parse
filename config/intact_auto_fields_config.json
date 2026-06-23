@@ -4,21 +4,21 @@
   "fields": {
     "applicant_information": {
       "required": true,
-      "description": "Applicant personal information",
+      "description": "Primary applicant personal information. When Application Section 1 'Applicant's Name & Primary Address' lists TWO names joined by '&' (e.g. 'Dang, Thanh Tam & Nguyen, Thi My Trinh'), this block is for the FIRST person only; put the SECOND person in second_applicant_information.",
       "fields": {
         "last_name": {
           "type": "string",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract the applicant's last name (surname) from the MVR field labeled 'Name' / 'Name :' ONLY — MVR is the authoritative source (not the Application form). ⚠️ NEVER use Birth Date, Expiry Date, Issue Date, BirDt, ExpDt, Height, Gender, Address, or ANY date value as a name — date_of_birth is a separate field. Example (Ontario MVR): 'Name : HE, XINYI' with 'Birth Date : 21/11/1992' on another line → last_name='HE', first_name='XINYI' (NOT '21/11/1992'). ⚠️ MVR NAME FORMAT (HARD RULE): MVR prints names as LAST, FIRST[, MIDDLE] using commas as the ONLY delimiter. Case 1 — 'LAST, FIRST, MIDDLE': last_name = first part; ignore middle. Case 2 — 'LAST, FIRST': last_name = first part. Case 3 — last name only ('LAST' or 'LAST,'): last_name = that text AND first_name = same text. NEVER split on whitespace. Examples: 'HE, XINYI' → last_name='HE'; 'SINGH, NAVDEEP' → last_name='SINGH'.",
-          "description": "Applicant's last name (surname)"
+          "extraction_logic": "Extract the PRIMARY (first) applicant's last name (surname) from the MVR field labeled 'Name' / 'Name :' ONLY — MVR is the authoritative source (not the Application form). When Application Section 1 shows two names joined by '&', use the MVR that belongs to the FIRST person only — do NOT combine both surnames. ⚠️ NEVER use Birth Date, Expiry Date, Issue Date, BirDt, ExpDt, Height, Gender, Address, or ANY date value as a name — date_of_birth is a separate field. Example (Ontario MVR): 'Name : HE, XINYI' with 'Birth Date : 21/11/1992' on another line → last_name='HE', first_name='XINYI' (NOT '21/11/1992'). ⚠️ MVR NAME FORMAT (HARD RULE): MVR prints names as LAST, FIRST[, MIDDLE] using commas as the ONLY delimiter. Case 1 — 'LAST, FIRST, MIDDLE': last_name = first part; ignore middle. Case 2 — 'LAST, FIRST': last_name = first part. Case 3 — last name only ('LAST' or 'LAST,'): last_name = that text AND first_name = same text. NEVER split on whitespace. Examples: 'HE, XINYI' → last_name='HE'; 'SINGH, NAVDEEP' → last_name='SINGH'.",
+          "description": "Primary applicant's last name (surname)"
         },
         "first_name": {
           "type": "string",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract the applicant's first name from the MVR field labeled 'Name' / 'Name :' ONLY — MVR is the authoritative source (not the Application form). ⚠️ NEVER put Birth Date, Expiry Date, or any other date into first_name — dates belong in date_of_birth and other date fields only. Example: 'Name : HE, XINYI' with Birth Date 21/11/1992 elsewhere → first_name='XINYI' (never '21/11/1992'). ⚠️ MVR NAME FORMAT (HARD RULE): LAST, FIRST[, MIDDLE] — comma is the ONLY delimiter. Case 1 — three parts: first_name = second part (ignore middle). Case 2 — two parts: first_name = second part. Case 3 — last name only: first_name = same as last_name. NEVER split on whitespace. Examples: 'HE, XINYI' → first_name='XINYI'; 'WANG, AI, LEE' → first_name='AI'.",
-          "description": "Applicant's first name"
+          "extraction_logic": "Extract the PRIMARY (first) applicant's first name from the MVR field labeled 'Name' / 'Name :' ONLY — MVR is the authoritative source (not the Application form). When Application Section 1 shows two names joined by '&', use the MVR that belongs to the FIRST person only. ⚠️ NEVER put Birth Date, Expiry Date, or any other date into first_name — dates belong in date_of_birth and other date fields only. Example: 'Name : HE, XINYI' with Birth Date 21/11/1992 elsewhere → first_name='XINYI' (never '21/11/1992'). ⚠️ MVR NAME FORMAT (HARD RULE): LAST, FIRST[, MIDDLE] — comma is the ONLY delimiter. Case 1 — three parts: first_name = second part (ignore middle). Case 2 — two parts: first_name = second part. Case 3 — last name only: first_name = same as last_name. NEVER split on whitespace. Examples: 'HE, XINYI' → first_name='XINYI'; 'WANG, AI, LEE' → first_name='AI'.",
+          "description": "Primary applicant's first name"
         },
         "gender": {
           "type": "string",
@@ -70,6 +70,78 @@
           "required": true,
           "extraction_logic": "Extract the applicant's email address from the application. Use the address exactly as printed.",
           "description": "Applicant email address"
+        }
+      }
+    },
+    "second_applicant_information": {
+      "required": false,
+      "description": "Second applicant personal information. Include this object ONLY when Application Section 1 'Applicant's Name & Primary Address' lists TWO names joined by '&' (e.g. 'Dang, Thanh Tam & Nguyen, Thi My Trinh'). Omit the entire object when there is a single applicant. Field set mirrors applicant_information for the SECOND person. Shared household contact (postal_code, full_address, phone, email) may repeat the same values as applicant_information.",
+      "extraction_logic": "Output second_applicant_information only when the Application name line contains '&' separating two 'LAST, FIRST' names. Strip trailing parenthetical codes such as '(DATH11)'. The second person's MVR (if present) is authoritative for last_name/first_name; other personal fields come from the application or other documents for that second person.",
+      "fields": {
+        "last_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the SECOND applicant's last name (surname) from that person's MVR 'Name' / 'Name :' field when available; otherwise parse from the second name before '&' on Application Section 1. ⚠️ MVR NAME FORMAT (HARD RULE): LAST, FIRST[, MIDDLE] — comma is the ONLY delimiter; ignore middle name. Example Application line: 'Dang, Thanh Tam & Nguyen, Thi My Trinh' → last_name='Nguyen'.",
+          "description": "Second applicant's last name (surname)"
+        },
+        "first_name": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the SECOND applicant's first name from that person's MVR 'Name' / 'Name :' field when available; otherwise parse from the second name after '&' on Application Section 1. ⚠️ MVR NAME FORMAT (HARD RULE): LAST, FIRST[, MIDDLE] — comma is the ONLY delimiter; ignore middle name. Example: 'Nguyen, Thi My Trinh' → first_name='Thi My Trinh'.",
+          "description": "Second applicant's first name"
+        },
+        "gender": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract the second applicant's gender. Priority: application form, then other documents. Must match one of the options: Female, Male, or X.",
+          "description": "Second applicant's gender",
+          "options": ["Female", "Male", "X"]
+        },
+        "date_of_birth": {
+          "type": "string",
+          "mode": "date",
+          "required": true,
+          "extraction_logic": "Extract the second applicant's date of birth. Priority: application form, then other documents. Convert to YYYY-MM-DD format.",
+          "description": "Second applicant's date of birth in YYYY-MM-DD format"
+        },
+        "marital_status": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract the second applicant's marital status. Priority: application form, then other documents. Must match one of the options: Divorced, Married, Single, or Widow.",
+          "description": "Second applicant's marital status",
+          "options": ["Divorced", "Married", "Single", "Widow"]
+        },
+        "postal_code": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the second applicant's postal code from the application (Canadian format X9X9X9). When both applicants share one primary address, repeat the same postal_code as applicant_information.",
+          "description": "Second applicant postal code in Canadian format X9X9X9"
+        },
+        "full_address": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the second applicant's full mailing address from the application (street/unit, city, province) without postal code. When both share one primary address, repeat applicant_information.full_address.",
+          "description": "Second applicant full address (street, city, province — no postal code)"
+        },
+        "phone": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the second applicant's primary telephone number from the application. When only one household phone is listed, repeat applicant_information.phone. Output digits only.",
+          "description": "Second applicant primary phone number (digits only, no separators)"
+        },
+        "email": {
+          "type": "string",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Extract the second applicant's email address from the application. When only one household email is listed, repeat applicant_information.email.",
+          "description": "Second applicant email address"
         }
       }
     },
@@ -150,6 +222,7 @@
           "type": "string",
           "mode": "radio",
           "required": true,
+          "extraction_logic": "Use the Quote DIS/discount section for THIS vehicle. If the Quote shows a discount line such as 'Discount - Winter Tire included' / 'Discount - Winter Tires included' for this vehicle, output 'Yes'. If that Winter Tire discount line is absent for this vehicle, output 'No'. Do not infer from purchase table, season, province, vehicle type, or general assumptions.",
           "description": "Whether the vehicle has winter tires",
           "options": ["Yes", "No"]
         },
@@ -663,7 +736,7 @@
           "type": "array",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Mirror the Intact Quote line-by-line in this array. MANDATORY sources: (1) the main coverage/premium table (each row under coverages such as Bodily Injury / Prop. Damage, Property Damage, Direct Compensation, Accident Benefits, All Perils, Uninsured Automobile, #20 Loss of Use, #23a Lienholder Protection, #44 Family Protection, Service Fee, and any other rows on that table); (2) the DIS (discounts) sidebar/list (e.g. 'Discount - Winter Tire included', 'Discount - Hybrid and Electric Vehicle included', 'Discount - Graduated License Holder included'). Output ONE array element per quote coverage row AND per DIS discount — ⚠️ NEVER omit a coverage or discount because its limit/deductible/premium is 0; include every row that appears on the quote. Do not skip a table row just because it is also filled in coverages.limit, dcpd_deductible, all_perils_or_collision_or_upset, or other dedicated fields; those fields AND this array must both reflect the quote. Use the coverage description text exactly as printed on the quote (normalize #20 to match quote wording). For the limit/deductible column (middle column, NOT PRIN./TOTALS premium): use 'Name: Value' when a limit/deductible is shown — including 0 (e.g. 'Direct Compensation: 0', 'Property Damage: 0'); convert 1M/1 m = 1000000, 1K = 1000, etc.; if the limit/deductible column is blank or 'Inc.' only, output the name alone. Always include every DIS discount bullet as its own entry (name only, even when the discount amount is $0). Do NOT use section_optional_coverages or accident_benefits_standard_benefits. Never put premium dollars in this array — only coverage name and limit/deductible (including 0 when printed).",
+          "extraction_logic": "Mirror the Intact Quote line-by-line in this array. MANDATORY sources: (1) the main coverage/premium table (each row under coverages such as Bodily Injury / Prop. Damage, Property Damage, Direct Compensation, Accident Benefits, All Perils, Uninsured Automobile, #20 Loss of Use, #23a Lienholder Protection, #27 Liab to Unowned Veh., #44 Family Protection, Service Fee, and any other rows on that table); (2) the DIS (discounts) sidebar/list (e.g. 'Discount - Winter Tire included', 'Discount - Hybrid and Electric Vehicle included', 'Discount - Graduated License Holder included'). Output ONE array element per quote coverage row AND per DIS discount. For every coverage table row, output 'Name: Value' using the coverage limit/value column immediately after the coverage name, NOT the premium/PRIN./TOTALS columns. Examples: '#20 Loss Of Use 5,000 95 95' -> '#20 Loss Of Use: 5000' (not 95); '#27 Liab to Unowned Veh. 75K 55 55' -> '#27 Liab to Unowned Veh.: 75K'; 'All Perils 1,000 1,588 1,588' -> 'All Perils: 1000'; 'Minor Conviction Protection 0' -> 'Minor Conviction Protection: 0'. If the limit/value column is blank or non-numeric (e.g. '#23a Lienholder Protection Inc. 0'), then use the next available numeric value, including 0. Include 0 values. Convert 1M/1 m = 1000000; preserve K values as printed (e.g. 75K). Only output the name alone when there is no numeric value anywhere after that coverage name on the row. Do NOT use section_optional_coverages or accident_benefits_standard_benefits.",
           "description": "Every Quote coverage table row plus every DIS discount line — one element per row; never drop entries because the limit/deductible is 0"
         },
         "dcpd_deductible": {

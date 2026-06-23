@@ -248,33 +248,6 @@
               "extraction_logic": "Extract from Dwelling Information -> Year Dwelling Build. Output YYYY.",
               "description": "Year built (YYYY)"
             },
-            "primary_heat_type": {
-              "type": "string",
-              "mode": "dropdown",
-              "required": true,
-              "extraction_logic": "Quote -> Primary Heating -> Type. Read the value above the label (e.g. 'Central Furnace - Gas'). Use LLM fuzzy matching to map source text to one allowed option. Example: 'Central Furnace - Gas' -> 'Forced Air Furnace'.",
-              "description": "Primary heat type",
-              "options": [
-                "Approved Combination Furnace",
-                "Baseboard Heater",
-                "Fireplace",
-                "Fixed Space Heater",
-                "Forced Air Furnace",
-                "Geo Thermal Heat Pump",
-                "Gravity Furnace",
-                "Heat Pump",
-                "Hot Water - Boiler",
-                "None",
-                "Other",
-                "Outdoor Hot Water Heater",
-                "Pellet Stove",
-                "Portable Space Heaters",
-                "Radiant Heat Panels or Film",
-                "Solar Heater",
-                "Wood Heat Furnace",
-                "Wood Stove"
-              ]
-            },
             "security_or_mitigation_system": {
               "type": "string",
               "mode": "free_text",
@@ -551,33 +524,6 @@
                 "Detached Frame",
                 "Detached Garage Masonry",
                 "Detached Masonry Incl Veneer"
-              ]
-            },
-            "primary_heat_type": {
-              "type": "string",
-              "mode": "dropdown",
-              "required": true,
-              "extraction_logic": "Quote -> Primary Heating -> Type. Read the value above the label (e.g. 'Central Furnace - Gas'). Use LLM fuzzy matching to map source text to one allowed option. Example: 'Central Furnace - Gas' -> 'Forced Air Furnace'.",
-              "description": "Primary heat type",
-              "options": [
-                "Approved Combination Furnace",
-                "Baseboard Heater",
-                "Fireplace",
-                "Fixed Space Heater",
-                "Forced Air Furnace",
-                "Geo Thermal Heat Pump",
-                "Gravity Furnace",
-                "Heat Pump",
-                "Hot Water - Boiler",
-                "None",
-                "Other",
-                "Outdoor Hot Water Heater",
-                "Pellet Stove",
-                "Portable Space Heaters",
-                "Radiant Heat Panels or Film",
-                "Solar Heater",
-                "Wood Heat Furnace",
-                "Wood Stove"
               ]
             },
             "security_or_mitigation_system": {
@@ -871,33 +817,6 @@
               "required": true,
               "extraction_logic": "Extract from Dwelling Information -> Year Dwelling Build. Output YYYY.",
               "description": "Year built (YYYY)"
-            },
-            "primary_heat_type": {
-              "type": "string",
-              "mode": "dropdown",
-              "required": true,
-              "extraction_logic": "Quote -> Primary Heating -> Type. Read the value above the label (e.g. 'Central Furnace - Gas'). Use LLM fuzzy matching to map source text to one allowed option. Example: 'Central Furnace - Gas' -> 'Forced Air Furnace'.",
-              "description": "Primary heat type",
-              "options": [
-                "Approved Combination Furnace",
-                "Baseboard Heater",
-                "Fireplace",
-                "Fixed Space Heater",
-                "Forced Air Furnace",
-                "Geo Thermal Heat Pump",
-                "Gravity Furnace",
-                "Heat Pump",
-                "Hot Water - Boiler",
-                "None",
-                "Other",
-                "Outdoor Hot Water Heater",
-                "Pellet Stove",
-                "Portable Space Heaters",
-                "Radiant Heat Panels or Film",
-                "Solar Heater",
-                "Wood Heat Furnace",
-                "Wood Stove"
-              ]
             },
             "security_or_mitigation_system": {
               "type": "string",

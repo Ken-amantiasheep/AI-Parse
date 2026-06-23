@@ -108,33 +108,6 @@
       "extraction_logic": "Extract from Dwelling Information -> Year Dwelling Build. Output YYYY.",
       "description": "Year built (YYYY)"
     },
-    "primary_heat_type": {
-      "type": "string",
-      "mode": "dropdown",
-      "required": true,
-      "extraction_logic": "Extract from Primary Heating -> Type. Use keyword/fuzzy mapping to allowed options. Example: 'Central Furnace - Gas' maps to 'Forced Air Furnace'.",
-      "description": "Primary heat type",
-      "options": [
-        "Approved Combination Furnace",
-        "Baseboard Heater",
-        "Fireplace",
-        "Fixed Space Heater",
-        "Forced Air Furnace",
-        "Geo Thermal Heat Pump",
-        "Gravity Furnace",
-        "Heat Pump",
-        "Hot Water - Boiler",
-        "None",
-        "Other",
-        "Outdoor Hot Water Heater",
-        "Pellet Stove",
-        "Portable Space Heaters",
-        "Radiant Heat Panels or Film",
-        "Solar Heater",
-        "Wood Heat Furnace",
-        "Wood Stove"
-      ]
-    },
     "security_or_mitigation_system": {
       "type": "string",
       "mode": "free_text",
