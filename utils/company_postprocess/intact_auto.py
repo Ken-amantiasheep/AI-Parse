@@ -131,12 +131,36 @@ def _strip_parenthetical_suffix(text: str) -> str:
     return re.sub(r"\s*\([^)]*\)\s*$", "", text).strip()
 
 
+# Section headers like "Applicant's Name & Primary Address" contain '&' but are NOT two applicants.
+_DUAL_APPLICANT_HEADER_LINE_PATTERN = re.compile(
+    r"(?i)(applicant'?s?\s+(?:full\s+)?name|name\s+and\s+address|primary\s+address|"
+    r"postal\s+code|phone\s+no|section\s+\d|lienholder)"
+)
+
+
+def _get_application_form_only_text(documents: Optional[Dict[str, str]]) -> str:
+    """Application_Form text only — never Quote/MVR/lienholder fallbacks."""
+    if not isinstance(documents, dict):
+        return ""
+    parts = []
+    for key, value in documents.items():
+        if not isinstance(key, str) or not isinstance(value, str) or not value.strip():
+            continue
+        if "application" in key.strip().lower():
+            parts.append(value)
+    return "\n".join(parts)
+
+
 def _split_dual_applicant_name_line(line: str):
     """
     Split 'LAST, FIRST & LAST, FIRST' into two raw name strings.
     Returns (left_raw, right_raw) or None.
+
+    Both sides must use comma-separated LAST, FIRST format (not section headers).
     """
     if not isinstance(line, str) or "&" not in line:
+        return None
+    if _DUAL_APPLICANT_HEADER_LINE_PATTERN.search(line):
         return None
     parts = re.split(r"\s*&\s*", line, maxsplit=1)
     if len(parts) != 2:
@@ -145,14 +169,20 @@ def _split_dual_applicant_name_line(line: str):
     right = _strip_parenthetical_suffix(parts[1].strip())
     if not left or not right:
         return None
+    # Intact dual-applicant name lines always print two 'LAST, FIRST' segments.
+    if "," not in left or "," not in right:
+        return None
     if not _parse_mvr_name(left) or not _parse_mvr_name(right):
         return None
     return left, right
 
 
 def _extract_dual_applicant_names_from_application(documents: Optional[Dict[str, str]]):
-    """Return (name1_raw, name2_raw) when Application lists two '&'-joined applicant names."""
-    app_text = _get_application_document_text(documents)
+    """
+    Return (name1_raw, name2_raw) ONLY when Application Section 1 lists two
+    '&'-joined applicant names. Ignores MVR/driver count and non-Application docs.
+    """
+    app_text = _get_application_form_only_text(documents)
     if not app_text:
         return None
 
@@ -164,6 +194,11 @@ def _extract_dual_applicant_names_from_application(documents: Optional[Dict[str,
     return None
 
 
+def _application_has_dual_applicant_names(documents: Optional[Dict[str, str]]) -> bool:
+    """True only when Application Section 1 name line lists two people joined by '&'."""
+    return _extract_dual_applicant_names_from_application(documents) is not None
+
+
 def _sync_shared_applicant_contact_fields(primary: Dict, secondary: Dict) -> None:
     """Copy shared household address/phone/email from primary to secondary when missing."""
     if not isinstance(primary, dict) or not isinstance(secondary, dict):
@@ -171,6 +206,25 @@ def _sync_shared_applicant_contact_fields(primary: Dict, secondary: Dict) -> Non
     for key in _APPLICANT_CONTACT_KEYS:
         if _is_missing(secondary.get(key)) and not _is_missing(primary.get(key)):
             secondary[key] = primary[key]
+
+
+def _remove_second_applicant_unless_dual_on_application(
+    data: Dict, documents: Optional[Dict[str, str]]
+) -> Dict:
+    """
+    second_applicant_information is allowed ONLY when Application Section 1
+    lists two applicant names joined by '&'. Multiple drivers/MVRs do not qualify.
+    """
+    if not isinstance(data, dict):
+        return data
+    if not _application_has_dual_applicant_names(documents):
+        if "second_applicant_information" in data:
+            print(
+                "[INFO] Removed second_applicant_information — Application Section 1 "
+                "has a single applicant (extra drivers/MVRs are not applicants)"
+            )
+        data.pop("second_applicant_information", None)
+    return data
 
 
 def _apply_dual_applicant_from_application(data: Dict, documents: Optional[Dict[str, str]]) -> Dict:
@@ -182,9 +236,10 @@ def _apply_dual_applicant_from_application(data: Dict, documents: Optional[Dict[
     if not isinstance(data, dict):
         return data
 
+    data = _remove_second_applicant_unless_dual_on_application(data, documents)
+
     dual = _extract_dual_applicant_names_from_application(documents)
     if not dual:
-        data.pop("second_applicant_information", None)
         return data
 
     name1_raw, name2_raw = dual
@@ -1394,9 +1449,22 @@ def _parse_date_text(value: str) -> Optional[date]:
     return None
 
 
-# MVR header sits at the very top-right of each MVR document and looks like:
+# MVR pull time: upper-right black timestamp on CGI/Ontario abstracts, e.g.
+#   Monday, June 22, 2026 03:30 PM
+# Do NOT use the red "Duplicate request ... submitted on DD/MM/YYYY" banner (top-left).
+_MVR_TOP_RIGHT_DATETIME_PATTERN = re.compile(
+    r"(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+"
+    r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+    r"(\d{1,2}),\s+(\d{4})\s+\d{1,2}:\d{2}\s*(?:AM|PM)",
+    flags=re.IGNORECASE,
+)
+_MVR_TOP_RIGHT_DATETIME_NO_WEEKDAY_PATTERN = re.compile(
+    r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+    r"(\d{1,2}),\s+(\d{4})\s+\d{1,2}:\d{2}\s*(?:AM|PM)",
+    flags=re.IGNORECASE,
+)
+# Legacy Ontario MVR header at upper-right:
 #   *** MOTOR VEHICLE RECORD - YYYY/MM/DD ***
-# This header date is the authoritative MVR "consent" date for that driver.
 _MVR_HEADER_PATTERN = re.compile(
     r"MOTOR\s+VEHICLE\s+RECORD\s*-\s*(\d{4}[/-]\d{2}[/-]\d{2})",
     flags=re.IGNORECASE,
@@ -1665,12 +1733,42 @@ _AUTOPLUS_REPORT_DATE_PATTERN = re.compile(
 )
 
 
-def _build_mvr_header_date_index(documents: Optional[Dict[str, str]]):
+def _parse_english_month_date(month_name: str, day: int, year: int) -> Optional[date]:
+    for fmt in ("%B %d %Y", "%b %d %Y"):
+        try:
+            return datetime.strptime(f"{month_name} {day} {year}", fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _extract_mvr_pull_date_from_content(content: str) -> Optional[date]:
     """
-    Return a list of (doc_key, header_date, upper_content) for every MVR document.
-    Only the FIRST `*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***` match in each document
-    is kept, since that is the top-of-page header in the upper-right corner.
+    Extract MVR pull date from the upper-right black timestamp at the top of the page.
+
+    Prefers CGI abstract timestamps like 'Monday, June 22, 2026 03:30 PM'.
+    Ignores duplicate-request banner dates ('submitted on 10/06/2026') and summary
+    table Request Date / Release Date rows.
+    Falls back to legacy '*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***' header.
     """
+    if not isinstance(content, str) or not content.strip():
+        return None
+
+    head = content[:3500]
+    for pattern in (_MVR_TOP_RIGHT_DATETIME_PATTERN, _MVR_TOP_RIGHT_DATETIME_NO_WEEKDAY_PATTERN):
+        for match in pattern.finditer(head):
+            parsed = _parse_english_month_date(match.group(1), int(match.group(2)), int(match.group(3)))
+            if parsed is not None:
+                return parsed
+
+    legacy = _MVR_HEADER_PATTERN.search(content)
+    if legacy:
+        return _parse_date_text(legacy.group(1))
+    return None
+
+
+def _build_mvr_pull_date_index(documents: Optional[Dict[str, str]]):
+    """Return list of (doc_key, pull_date, upper_content) per MVR document."""
     index = []
     if not isinstance(documents, dict):
         return index
@@ -1680,14 +1778,93 @@ def _build_mvr_header_date_index(documents: Optional[Dict[str, str]]):
             continue
         if not doc_key.upper().startswith("MVR"):
             continue
-        match = _MVR_HEADER_PATTERN.search(content)
-        if not match:
+        pull_date = _extract_mvr_pull_date_from_content(content)
+        if pull_date is None:
             continue
-        header_date = _parse_date_text(match.group(1))
-        if header_date is None:
-            continue
-        index.append((doc_key, header_date, content.upper()))
+        index.append((doc_key, pull_date, content.upper()))
     return index
+
+
+def _find_mvr_pull_date_for_driver(
+    driver: Dict,
+    applicant_info: Optional[Dict],
+    is_primary: bool,
+    driver_idx: int,
+    mvr_index,
+) -> Optional[date]:
+    """Pick the MVR pull date for this driver (same matching rules as header date)."""
+    if not mvr_index:
+        return None
+
+    licence_key = _normalize_licence_key(driver.get("licence_number"))
+    if licence_key:
+        for entry in mvr_index:
+            upper_content = entry[2]
+            if licence_key in re.sub(r"[\s\-]", "", upper_content):
+                return entry[1]
+
+    first, last = _driver_name_tokens(driver, applicant_info, is_primary)
+    if first or last:
+        for entry in mvr_index:
+            upper_content = entry[2]
+            last_hit = bool(last) and last in upper_content
+            first_hit = bool(first) and first in upper_content
+            if last and first:
+                if last_hit and first_hit:
+                    return entry[1]
+            elif last_hit or first_hit:
+                return entry[1]
+
+    if driver_idx < len(mvr_index):
+        return mvr_index[driver_idx][1]
+    if len(mvr_index) == 1:
+        return mvr_index[0][1]
+    return None
+
+
+def _apply_mvr_request_datetime_from_documents(
+    generator,
+    data: Dict,
+    documents: Optional[Dict[str, str]],
+) -> Dict:
+    """Overwrite driver MVR_request_date_time from each MVR's upper-right pull timestamp."""
+    if not isinstance(data, dict):
+        return data
+
+    drivers = data.get("driver")
+    if not isinstance(drivers, list) or not drivers:
+        return data
+
+    mvr_index = _build_mvr_pull_date_index(documents)
+    if not mvr_index:
+        return data
+
+    applicant_info = data.get("applicant_information") if isinstance(data.get("applicant_information"), dict) else None
+    for driver_idx, driver in enumerate(drivers):
+        if not isinstance(driver, dict):
+            continue
+        pull_date = _find_mvr_pull_date_for_driver(
+            driver,
+            applicant_info,
+            is_primary=(driver_idx == 0),
+            driver_idx=driver_idx,
+            mvr_index=mvr_index,
+        )
+        if pull_date is None:
+            continue
+        formatted = generator._format_to_ddmmyyyy(pull_date.isoformat())
+        if formatted:
+            driver["MVR_request_date_time"] = formatted
+    return data
+
+
+def _build_mvr_header_date_index(documents: Optional[Dict[str, str]]):
+    """
+    Return a list of (doc_key, header_date, upper_content) for every MVR document.
+    Uses the upper-right pull timestamp when present (CGI abstracts), otherwise the
+    legacy MOTOR VEHICLE RECORD header date.
+    """
+    return _build_mvr_pull_date_index(documents)
 
 
 def _extract_earliest_autoplus_report_date(documents: Optional[Dict[str, str]]):
@@ -1946,8 +2123,13 @@ def _quote_coverage_value_for_label(quote_text: str, label: str) -> Optional[str
     return None
 
 
-def _supplement_missing_intact_coverage_values_from_quote(items: list, documents: Optional[Dict[str, str]]) -> list:
-    quote_text = _get_quote_document_text(documents)
+def _supplement_missing_intact_coverage_values_from_quote(
+    items: list,
+    documents: Optional[Dict[str, str]] = None,
+    quote_text: Optional[str] = None,
+) -> list:
+    if quote_text is None:
+        quote_text = _get_quote_document_text(documents)
     if not quote_text or not isinstance(items, list):
         return items
 
@@ -1983,17 +2165,55 @@ def _supplement_missing_intact_coverage_values_from_quote(items: list, documents
     return updated
 
 
-def _normalize_intact_additional_coverages(data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
-    """
-    Consolidate legacy coverage arrays into coverages.additional_coverages.
-    Keep every non-empty coverage/discount entry — including ': 0' values.
-    """
-    if not isinstance(data, dict):
-        return data
+def _count_intact_risks(data: Dict) -> int:
+    risks = data.get("risk")
+    if isinstance(risks, dict):
+        return 1
+    if isinstance(risks, list):
+        return sum(1 for risk in risks if isinstance(risk, dict))
+    return 0
 
-    coverages = data.get("coverages")
+
+def _extract_quote_blocks_by_vehicle(documents: Optional[Dict[str, str]]) -> Dict[int, str]:
+    """
+    Split Quote text into per-vehicle blocks.
+    Supports 'Vehicle 1 of 2 ...' and '1 of 2 | 2025 HONDA ...' headers.
+    """
+    quote = _get_quote_document_text(documents)
+    if not quote:
+        return {}
+
+    block_pattern = re.compile(
+        r"(?im)Vehicle\s+(\d+)\s+of\s+\d+([\s\S]*?)(?=Vehicle\s+\d+\s+of\s+\d+|$)",
+    )
+    matches = list(block_pattern.finditer(quote))
+    if matches:
+        result: Dict[int, str] = {}
+        for match in matches:
+            result[int(match.group(1))] = match.group(0)
+        return result
+
+    vehicle_pattern = re.compile(r"(?im)^\s*(\d+)\s+of\s+\d+(?:\s*\||\b)")
+    header_matches = list(vehicle_pattern.finditer(quote))
+    if not header_matches:
+        return {1: quote}
+
+    result = {}
+    for idx, match in enumerate(header_matches):
+        vehicle_no = int(match.group(1))
+        end = header_matches[idx + 1].start() if idx + 1 < len(header_matches) else len(quote)
+        result[vehicle_no] = quote[match.start() : end]
+    return result
+
+
+def _normalize_single_coverage_block(
+    coverages: Dict,
+    quote_text: Optional[str],
+    documents: Optional[Dict[str, str]],
+) -> None:
+    """Merge legacy coverage arrays and supplement additional_coverages from a quote block."""
     if not isinstance(coverages, dict):
-        return data
+        return
 
     merged = []
     seen = set()
@@ -2014,9 +2234,13 @@ def _normalize_intact_additional_coverages(data: Dict, documents: Optional[Dict[
     for legacy_key in _COVERAGE_LEGACY_ARRAY_KEYS:
         coverages.pop(legacy_key, None)
 
+    supplement_source = quote_text or _get_quote_document_text(documents)
     if merged:
-        merged = _supplement_missing_intact_coverage_values_from_quote(merged, documents)
-        coverages["additional_coverages"] = merged
+        coverages["additional_coverages"] = _supplement_missing_intact_coverage_values_from_quote(
+            merged,
+            documents,
+            quote_text=supplement_source,
+        )
     elif "additional_coverages" in coverages and isinstance(coverages["additional_coverages"], list):
         coverages["additional_coverages"] = [
             str(x).strip()
@@ -2026,9 +2250,45 @@ def _normalize_intact_additional_coverages(data: Dict, documents: Optional[Dict[
         coverages["additional_coverages"] = _supplement_missing_intact_coverage_values_from_quote(
             coverages["additional_coverages"],
             documents,
+            quote_text=supplement_source,
         )
 
+
+def _normalize_intact_coverages(data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
+    """
+    Normalize coverages (vehicle 1) and optional second_coverage (vehicle 2).
+    Removes second_coverage when fewer than two risks are present.
+    """
+    if not isinstance(data, dict):
+        return data
+
+    vehicle_blocks = _extract_quote_blocks_by_vehicle(documents)
+    risk_count = _count_intact_risks(data)
+
+    coverages = data.get("coverages")
+    if isinstance(coverages, dict):
+        block1 = vehicle_blocks.get(1) or _get_quote_document_text(documents)
+        _normalize_single_coverage_block(coverages, block1, documents)
+
+    if risk_count < 2:
+        data.pop("second_coverage", None)
+        return data
+
+    second = data.get("second_coverage")
+    if not isinstance(second, dict):
+        second = {}
+        data["second_coverage"] = second
+
+    block2 = vehicle_blocks.get(2)
+    if not block2 and len(vehicle_blocks) >= 2:
+        block2 = vehicle_blocks.get(max(vehicle_blocks))
+    _normalize_single_coverage_block(second, block2, documents)
     return data
+
+
+def _normalize_intact_additional_coverages(data: Dict, documents: Optional[Dict[str, str]] = None) -> Dict:
+    """Backward-compatible alias — use _normalize_intact_coverages."""
+    return _normalize_intact_coverages(data, documents)
 
 
 def _normalize_intact_claim_total_amount_paid(data: Dict) -> Dict:
@@ -2199,15 +2459,17 @@ def apply(generator, data: Dict, documents: Optional[Dict[str, str]] = None) -> 
     data = _apply_intact_defaults(generator, data, documents)
     data = _apply_dual_applicant_from_application(data, documents)
     data = _apply_mvr_names_from_documents(data, documents)
+    data = _apply_mvr_request_datetime_from_documents(generator, data, documents)
     data = _apply_mvr_name_to_second_applicant(data, documents)
     data = _normalize_assignment_usage_from_quote(data, documents)
     data = _merge_root_address_into_applicant_information(data)
     data = _normalize_intact_applicant_information(data)
     data = _promote_additional_driver_identity_blocks(data)
     data = _normalize_intact_claim_total_amount_paid(data)
-    data = _normalize_intact_additional_coverages(data, documents)
+    data = _normalize_intact_coverages(data, documents)
     data = _normalize_winter_tires_from_quote_discount(data, documents)
     data = _apply_interest_from_application(data, documents)
+    data = _remove_second_applicant_unless_dual_on_application(data, documents)
     _beacon_interest(
         "before_normalize_intact_structure",
         interest=_summarize_risk_interest(data),

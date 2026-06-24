@@ -1,10 +1,13 @@
 {
   "company": "Intact_Auto",
   "description": "Intact Auto insurance JSON output format configuration",
+  "global_extraction_rules": {
+    "second_applicant_information": "UNIVERSAL RULE — applies to EVERY Intact Auto policy: Whether `second_applicant_information` exists depends ONLY on Application_Form Section 1 APPLICANT'S FULL NAME (the name VALUE line under that section header — not the header itself). If that line lists ONE person → omit `second_applicant_information` entirely. If that line lists TWO people joined by `&` in `LAST, FIRST & LAST, FIRST` format → include `second_applicant_information` for the second person only. NEVER create `second_applicant_information` because there are 2+ MVR files, 2+ drivers in `driver[]`, 2+ Autoplus files, or names on Quote/Dash — additional drivers belong in `driver[]` only. Section headers containing `&` (e.g. 'Applicant's Name & Primary Address') are labels, not two applicants."
+  },
   "fields": {
     "applicant_information": {
       "required": true,
-      "description": "Primary applicant personal information. When Application Section 1 'Applicant's Name & Primary Address' lists TWO names joined by '&' (e.g. 'Dang, Thanh Tam & Nguyen, Thi My Trinh'), this block is for the FIRST person only; put the SECOND person in second_applicant_information.",
+      "description": "Primary applicant personal information (every policy). Applicant count comes ONLY from Application Section 1 APPLICANT'S FULL NAME name line: one name → this block only; two names joined by '&' → this block is the FIRST person and the second goes in second_applicant_information. Never infer a second applicant from MVR/driver/Autoplus count.",
       "fields": {
         "last_name": {
           "type": "string",
@@ -75,8 +78,8 @@
     },
     "second_applicant_information": {
       "required": false,
-      "description": "Second applicant personal information. Include this object ONLY when Application Section 1 'Applicant's Name & Primary Address' lists TWO names joined by '&' (e.g. 'Dang, Thanh Tam & Nguyen, Thi My Trinh'). Omit the entire object when there is a single applicant. Field set mirrors applicant_information for the SECOND person. Shared household contact (postal_code, full_address, phone, email) may repeat the same values as applicant_information.",
-      "extraction_logic": "Output second_applicant_information only when the Application name line contains '&' separating two 'LAST, FIRST' names. Strip trailing parenthetical codes such as '(DATH11)'. The second person's MVR (if present) is authoritative for last_name/first_name; other personal fields come from the application or other documents for that second person.",
+      "description": "Second applicant personal information (every policy — optional). Include ONLY when Application Section 1 APPLICANT'S FULL NAME name VALUE line lists TWO names joined by '&' in 'LAST, FIRST & LAST, FIRST' format. For ALL other policies (single name on Application, or only extra drivers/MVRs) omit this entire object. Extra drivers are NOT applicants — use driver[] only.",
+      "extraction_logic": "UNIVERSAL: output this section only when Application Section 1 name VALUE line (not section headers) has '&' between two comma-formatted names. One applicant on Application → never output. Two MVRs or two drivers without dual names on Application → never output. Strip trailing codes like '(DATH11)'. Second person's MVR (if any) is authoritative for last_name/first_name.",
       "fields": {
         "last_name": {
           "type": "string",
@@ -308,7 +311,7 @@
       "required": true,
       "description": "Driver information - array of drivers. Extract ALL drivers found in documents. Each element represents one driver.",
       "type": "array",
-      "extraction_logic": "Extract ALL drivers found in the documents. Each driver should be a separate element in the array. If only one driver is found, the array should contain one element. Each driver element should contain all the driver fields for that specific driver. IMPORTANT for identity fields (last_name, first_name, gender, date_of_birth, marital_status, postal_code, full_address): include them ONLY for the second, third, fourth, ... driver (array index 1, 2, 3, ...). For the FIRST driver (index 0), OMIT these seven fields—they duplicate applicant_information at the root. For each additional driver, fill these with THAT driver's personal details and address from the policy; if the driver shares the same household as the applicant, you may use the same postal_code and full_address as applicant_information.",
+      "extraction_logic": "Extract ALL drivers found in the documents. Each driver is a separate array element. Applicant count is NOT driver count — a policy may have one applicant and multiple drivers; only Application Section 1 determines applicants. For identity fields (last_name, first_name, gender, date_of_birth, marital_status, postal_code, full_address): include ONLY for driver index 1, 2, 3, ... — OMIT on index 0 (duplicates applicant_information). Never put an additional driver into second_applicant_information.",
       "fields": {
         "last_name": {
           "type": "string",
@@ -423,15 +426,15 @@
           "type": "string",
           "mode": "date",
           "required": true,
-          "extraction_logic": "For THIS specific driver, locate the MVR document that belongs to this driver (match by driver's first/last name appearing in the MVR text), then read the date from the upper-right header at the very top of that MVR, which looks like '*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***'. Do NOT use any other date inside the MVR body. Output in YYYY-MM-DD format.",
-          "description": "MVR's Request Date/Time in YYYY-MM-DD format for THIS specific driver, taken from the upper-right header '*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***' of THIS driver's MVR"
+          "extraction_logic": "For THIS specific driver, locate the MVR document that belongs to this driver (match by licence number or name). Read the pull date/time from the UPPER-RIGHT black text at the very top of that MVR page — e.g. 'Monday, June 22, 2026 03:30 PM' on CGI/Ontario MVR Abstracts. ⚠️ DO NOT use: (1) the red 'Duplicate request ... submitted on DD/MM/YYYY' banner at the top-left; (2) 'Request Date / Release Date' in the summary table; (3) 'Requested On' / 'Print Date' / 'Reply Date' inside the driving record body. The upper-right black timestamp is the current pull time. Output date in YYYY-MM-DD format (ignore time-of-day). Legacy Ontario MVR fallback: '*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***' upper-right header only.",
+          "description": "MVR pull date for THIS driver — upper-right black timestamp (not duplicate-request banner or summary Request Date)"
         },
         "Consent_Date": {
           "type": "string",
           "mode": "date",
           "required": true,
-          "extraction_logic": "For THIS specific driver, compare two dates and choose the EARLIER one: (1) the MVR header date in the upper-right corner of THIS driver's MVR document, in the form '*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***' (match the MVR to this driver by first/last name; do NOT use any other date inside the MVR body); (2) the AutoPlus 'Report Date'. When multiple MVR documents are present, each driver MUST use the header date from their own MVR (not the global earliest). Output the earlier date in YYYY-MM-DD format.",
-          "description": "Consent date in YYYY-MM-DD format for THIS specific driver (earlier of THIS driver's MVR upper-right header date and AutoPlus Report Date)"
+          "extraction_logic": "For THIS specific driver, compare two dates and choose the EARLIER one: (1) the MVR pull date from the UPPER-RIGHT black timestamp at the top of THIS driver's MVR (e.g. 'Monday, June 22, 2026 03:30 PM' — NOT the red duplicate-request 'submitted on' date, NOT summary Request Date / Release Date); legacy fallback: '*** MOTOR VEHICLE RECORD - YYYY/MM/DD ***'; (2) the AutoPlus 'Report Date'. Match MVR to driver by licence or name. Output the earlier date in YYYY-MM-DD format.",
+          "description": "Consent date in YYYY-MM-DD format for THIS specific driver (earlier of THIS driver's MVR upper-right pull date and AutoPlus Report Date)"
         },
         "insurance_history_report_status": {
           "type": "string",
@@ -722,7 +725,8 @@
     },
     "coverages": {
       "required": true,
-      "description": "Coverages information",
+      "description": "Coverages for the FIRST vehicle (risk[0]). When the Quote shows multiple vehicles (e.g. '1 of 2 | ...' and '2 of 2 | ...'), extract coverages ONLY from the first vehicle's Breakdown table and DIS discounts — put the second vehicle in second_coverage.",
+      "extraction_logic": "Use the Quote block for vehicle 1 ('1 of 2 | ...' or 'Vehicle 1 of 2 ...'). Extract limit, deductibles, and additional_coverages from that vehicle's Breakdown/PRIN./TOTALS table and DIS sidebar only — do NOT mix rows from vehicle 2.",
       "fields": {
         "limit": {
           "type": "number",
@@ -736,7 +740,7 @@
           "type": "array",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Mirror the Intact Quote line-by-line in this array. MANDATORY sources: (1) the main coverage/premium table (each row under coverages such as Bodily Injury / Prop. Damage, Property Damage, Direct Compensation, Accident Benefits, All Perils, Uninsured Automobile, #20 Loss of Use, #23a Lienholder Protection, #27 Liab to Unowned Veh., #44 Family Protection, Service Fee, and any other rows on that table); (2) the DIS (discounts) sidebar/list (e.g. 'Discount - Winter Tire included', 'Discount - Hybrid and Electric Vehicle included', 'Discount - Graduated License Holder included'). Output ONE array element per quote coverage row AND per DIS discount. For every coverage table row, output 'Name: Value' using the coverage limit/value column immediately after the coverage name, NOT the premium/PRIN./TOTALS columns. Examples: '#20 Loss Of Use 5,000 95 95' -> '#20 Loss Of Use: 5000' (not 95); '#27 Liab to Unowned Veh. 75K 55 55' -> '#27 Liab to Unowned Veh.: 75K'; 'All Perils 1,000 1,588 1,588' -> 'All Perils: 1000'; 'Minor Conviction Protection 0' -> 'Minor Conviction Protection: 0'. If the limit/value column is blank or non-numeric (e.g. '#23a Lienholder Protection Inc. 0'), then use the next available numeric value, including 0. Include 0 values. Convert 1M/1 m = 1000000; preserve K values as printed (e.g. 75K). Only output the name alone when there is no numeric value anywhere after that coverage name on the row. Do NOT use section_optional_coverages or accident_benefits_standard_benefits.",
+          "extraction_logic": "Mirror the FIRST vehicle's Intact Quote block line-by-line in this array. Use only the '1 of 2 | ...' (or single-vehicle) Breakdown table and that vehicle's DIS sidebar. MANDATORY sources: (1) the main coverage/premium table (each row under coverages such as Bodily Injury / Prop. Damage, Property Damage, Direct Compensation, Accident Benefits, All Perils, Uninsured Automobile, #20 Loss of Use, #23a Lienholder Protection, #27 Liab to Unowned Veh., #44 Family Protection, Service Fee, and any other rows on that table); (2) the DIS (discounts) sidebar/list for THIS vehicle (e.g. 'Discount - Winter Tire included', 'Discount - Hybrid and Electric Vehicle included', 'Discount - Graduated License Holder included'). Output ONE array element per quote coverage row AND per DIS discount. For every coverage table row, output 'Name: Value' using the coverage limit/value column immediately after the coverage name, NOT the premium/PRIN./TOTALS columns. Examples: '#20 Loss Of Use 5,000 95 95' -> '#20 Loss Of Use: 5000' (not 95); '#27 Liab to Unowned Veh. 75K 55 55' -> '#27 Liab to Unowned Veh.: 75K'; 'All Perils 1,000 1,588 1,588' -> 'All Perils: 1000'; 'Minor Conviction Protection 0' -> 'Minor Conviction Protection: 0'. If the limit/value column is blank or non-numeric (e.g. '#23a Lienholder Protection Inc. 0'), then use the next available numeric value, including 0. Include 0 values. Convert 1M/1 m = 1000000; preserve K values as printed (e.g. 75K). Only output the name alone when there is no numeric value anywhere after that coverage name on the row. Do NOT use section_optional_coverages or accident_benefits_standard_benefits.",
           "description": "Every Quote coverage table row plus every DIS discount line — one element per row; never drop entries because the limit/deductible is 0"
         },
         "dcpd_deductible": {
@@ -791,6 +795,82 @@
           "mode": "radio",
           "required": true,
           "description": "OPCF 44R - Family Protection Endorsement",
+          "options": ["Yes", "No"]
+        }
+      }
+    },
+    "second_coverage": {
+      "required": false,
+      "description": "Coverages for the SECOND vehicle (risk[1]). Include this object ONLY when the policy has two vehicles on the Quote (e.g. '2 of 2 | 2026 TOYOTA ...'). Field set mirrors coverages for vehicle 2's Breakdown and DIS sections. Omit entirely for a single-vehicle policy.",
+      "extraction_logic": "Use the Quote block for vehicle 2 ('2 of 2 | ...' or 'Vehicle 2 of 2 ...'). Extract limit, deductibles, and additional_coverages from that vehicle's Breakdown/PRIN./TOTALS table and DIS sidebar only — do NOT reuse vehicle 1 rows.",
+      "fields": {
+        "limit": {
+          "type": "number",
+          "mode": "dropdown",
+          "required": true,
+          "extraction_logic": "Extract from the SECOND vehicle's Quote Breakdown block. Look for Bodily Injury limit on that vehicle's table. Convert abbreviations: 1m = 1000000, 2m = 2000000, etc.",
+          "description": "Limit amount for vehicle 2 (typically after 'Bodily Injury' in that vehicle's quote block)",
+          "options": [200000, 300000, 500000, 1000000, 2000000, 3000000, 4000000, 5000000]
+        },
+        "additional_coverages": {
+          "type": "array",
+          "mode": "free_text",
+          "required": true,
+          "extraction_logic": "Mirror the SECOND vehicle's Intact Quote block line-by-line. Use only the '2 of 2 | ...' Breakdown table and that vehicle's DIS sidebar. Same row rules as coverages.additional_coverages but scoped to vehicle 2 only.",
+          "description": "Vehicle 2 — every Quote coverage table row plus every DIS discount line"
+        },
+        "dcpd_deductible": {
+          "type": "number",
+          "mode": "dropdown",
+          "required": true,
+          "description": "Vehicle 2 — Direct Compensation - Property Damage (DCPD) deductible amount",
+          "options": ["0", "300", "500"]
+        },
+        "all_perils_or_collision_or_upset": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "description": "Vehicle 2 — ALL Perils OR Collision or Upset coverage type",
+          "options": ["Collision or Upset", "All Perils"]
+        },
+        "all_perils_or_collision_or_upset_deductible": {
+          "type": "number",
+          "mode": "free_text",
+          "required": true,
+          "description": "Vehicle 2 — Deductible for ALL Perils OR Collision or Upset"
+        },
+        "specified_perils_or_comprehensive": {
+          "type": "string",
+          "mode": "dropdown",
+          "required": true,
+          "description": "Vehicle 2 — Specified Perils OR Comprehensive coverage type",
+          "options": ["Comprehensive", "Specified Perils"]
+        },
+        "specified_perils_or_comprehensive_deductible": {
+          "type": "number",
+          "mode": "free_text",
+          "required": true,
+          "description": "Vehicle 2 — Deductible for Specified Perils OR Comprehensive"
+        },
+        "responsible_driver_guarantee": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "description": "Vehicle 2 — Responsible Driver Guarantee",
+          "options": ["Yes", "No"]
+        },
+        "claims_advantage": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "description": "Vehicle 2 — Claims Advantage",
+          "options": ["Yes", "No"]
+        },
+        "opcf_44r_family_protection_endorsement": {
+          "type": "string",
+          "mode": "radio",
+          "required": true,
+          "description": "Vehicle 2 — OPCF 44R - Family Protection Endorsement",
           "options": ["Yes", "No"]
         }
       }

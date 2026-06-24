@@ -135,8 +135,16 @@ class IntactJSONGenerator:
         if not fields_config.get("fields"):
             # If no fields configured, return default structure
             return self._get_default_fields_structure()
-        
+
         sections = []
+        global_rules = fields_config.get("global_extraction_rules")
+        if isinstance(global_rules, dict) and global_rules:
+            sections.append("## Global extraction rules (all policies)\n")
+            for rule_id, rule_text in global_rules.items():
+                if rule_text:
+                    sections.append(f"- **{rule_id}**: {rule_text}")
+            sections.append("")
+        
         section_num = 1
         
         for section_name, section_data in fields_config["fields"].items():
@@ -338,6 +346,28 @@ Before extracting `has_loan`, `type_of_interest`, `company_name`, `address`, or 
 """
 
     @staticmethod
+    def _build_intact_auto_applicant_count_alert() -> str:
+        """Universal rule: applicant count = Application Section 1 name line only (all policies)."""
+        return """## ⚠️ INTACT AUTO — APPLICANT COUNT (EVERY POLICY) ⚠️
+
+**The ONLY signal for how many applicants to output is Application_Form Section 1 — the APPLICANT'S FULL NAME value line** (the printed name(s) under that header, NOT the header text).
+
+| Application Section 1 name line | Output |
+|--------------------------------|--------|
+| **One** name (any format: `AKRAM YOUSIF`, `SINGH, NAVDEEP`, etc.) | `applicant_information` only — **omit** `second_applicant_information` |
+| **Two** names joined by `&` in `LAST, FIRST & LAST, FIRST` format | `applicant_information` = first person; `second_applicant_information` = second person |
+
+**Never** treat these as a second applicant (on any policy):
+- 2+ MVR files
+- 2+ entries in `driver[]`
+- Autoplus / Dash / Quote names
+- Section headers with `&` (e.g. `Applicant's Name & Primary Address`)
+
+Additional drivers → `driver[]` at index 1+ only. They are drivers, not applicants.
+
+"""
+
+    @staticmethod
     def _build_intact_auto_json_format_requirements() -> str:
         """Intact Auto only: strict JSON and multi-vehicle `risk` array rules."""
         return """## Intact Auto — JSON output (mandatory)
@@ -347,7 +377,8 @@ Before extracting `has_loan`, `type_of_interest`, `company_name`, `address`, or 
 - If multiple vehicles/risks are found, include ALL of them in `risk` as separate array elements in the same order as the source document.
 - Inside each `risk` element, `interest` MUST be a JSON object with sub-keys such as `has_loan`, and when `has_loan` is `Yes` also `type_of_interest`, `company_name`, `address`, and `postal_code`. Never replace `interest` with one string that merges bank name and address.
 - **`risk[].interest` = Application_Form ONLY** (never Quote/MVR/Autoplus). Extract `address` and `postal_code` from the Application lienholder row (any mailing format).
-- **`second_applicant_information`**: Include ONLY when Application Section 1 lists two applicant names joined by `&` (e.g. `Dang, Thanh Tam & Nguyen, Thi My Trinh`). Put the first person in `applicant_information` and the second in `second_applicant_information` (same field set). Omit `second_applicant_information` entirely for a single applicant.
+- **`second_applicant_information` (every policy)**: Include ONLY when Application Section 1 name VALUE line has two applicants joined by `&`. Single name on Application → omit entirely, regardless of MVR/driver count. Extra drivers go in `driver[]` only.
+- **`second_coverage`**: Include ONLY when the Quote lists two vehicles (e.g. `1 of 2 | ...` and `2 of 2 | ...`). Put the first vehicle's coverages in `coverages` and the second in `second_coverage` (same field set). Omit `second_coverage` entirely for a single vehicle.
 
 """
 
@@ -1117,6 +1148,7 @@ The overall JSON structure, section names, and nesting MUST follow this example 
 
         prompt = prompt_common.build_prompt_intro(self.company)
         if self._is_intact_auto_company():
+            prompt += self._build_intact_auto_applicant_count_alert()
             prompt += self._build_intact_auto_interest_source_alert()
 
         doc_map = documents

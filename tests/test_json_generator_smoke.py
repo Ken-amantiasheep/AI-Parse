@@ -921,6 +921,41 @@ No.
     assert interest["postal_code"] == "M5X1A1"
 
 
+def test_intact_auto_mvr_request_date_uses_top_right_black_timestamp():
+    """CGI abstract: use upper-right black pull time, not duplicate-request banner date."""
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {"last_name": "DALE", "first_name": "MARY"},
+        "driver": [
+            {
+                "licence_class": "G2",
+                "licence_number": "D02630156866220",
+                "MVR_request_date_time": "2026-06-10",
+            }
+        ],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "MVR_1": """
+MVR Abstracts
+Duplicate request. Abstract found. The request was submitted on 10/06/2026
+Monday, June 22, 2026 03:30 PM
+Province ON
+Licence D0263-01568-66220
+Name DALE, AJEH, MARY
+Request Date / Release Date 10/06/2026
+ONTARIO Driving Record
+Requested On 10/06/2026
+Print Date 10/06/2026
+Reply Date 10/06/2026
+""",
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert cleaned["driver"][0]["MVR_request_date_time"] == "22-06-2026"
+
+
 def test_intact_auto_applicant_name_from_mvr_overwrites_application():
     generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
     data = {
@@ -1686,6 +1721,92 @@ def test_intact_auto_applicant_information_includes_contact_and_address_fields()
     assert cfg["fields"]["second_applicant_information"]["required"] is False
     second_fields = cfg["fields"]["second_applicant_information"]["fields"]
     assert set(second_fields.keys()) == set(app_fields.keys())
+    assert "second_coverage" in cfg["fields"]
+    assert cfg["fields"]["second_coverage"]["required"] is False
+    cov_fields = cfg["fields"]["coverages"]["fields"]
+    assert set(cfg["fields"]["second_coverage"]["fields"].keys()) == set(cov_fields.keys())
+
+
+def test_intact_auto_removes_second_coverage_for_single_vehicle():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "risk": [{"risk_type": "PPV", "serial_number": "VIN1"}],
+        "coverages": {"additional_coverages": ["Bodily Injury / Prop. Damage: 1000000"]},
+        "second_coverage": {"additional_coverages": ["All Perils: 1000"]},
+        "driver": [{"licence_class": "G"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "Quote": """
+1 of 1 | 2012 DODGE RAM GRAND CARAVAN
+Breakdown
+Bodily Injury / Prop. Damage          1 M       518        518
+"""
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert "second_coverage" not in cleaned
+    assert cleaned["coverages"]["additional_coverages"] == ["Bodily Injury / Prop. Damage: 1000000"]
+
+
+def test_intact_auto_dual_vehicle_coverages_use_per_vehicle_quote_blocks():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "risk": [
+            {"risk_type": "PPV", "serial_number": "VIN1"},
+            {"risk_type": "PPV", "serial_number": "VIN2"},
+        ],
+        "coverages": {
+            "additional_coverages": [
+                "Bodily Injury / Prop. Damage",
+                "Minor Conviction Protection",
+                "Discount - Winter Tire included",
+            ]
+        },
+        "second_coverage": {
+            "additional_coverages": [
+                "All Perils",
+                "#20 Loss Of Use",
+                "#27 Liab to Unowned Veh.",
+                "Discount - Hybrid and Electric Vehicle included",
+            ]
+        },
+        "driver": [{"licence_class": "G"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "Quote": """
+1 of 2 | 2012 DODGE/RAM GRAND CARAVAN SE
+DIS
+Discount - Winter Tire included
+Breakdown
+Bodily Injury / Prop. Damage          1 M       518        518
+Minor Conviction Protection                     40         40
+
+2 of 2 | 2026 TOYOTA SIENNA XSE HEV AWD
+DIS
+Discount - Hybrid and Electric Vehicle included
+Breakdown
+All Perils                            1,000     632        632
+#20 Loss Of Use                       1,500     55         55
+#27 Liab to Unowned Veh.              75K       55         55
+"""
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert cleaned["coverages"]["additional_coverages"] == [
+        "Bodily Injury / Prop. Damage: 1000000",
+        "Minor Conviction Protection: 40",
+        "Discount - Winter Tire included",
+    ]
+    assert cleaned["second_coverage"]["additional_coverages"] == [
+        "All Perils: 1000",
+        "#20 Loss Of Use: 1500",
+        "#27 Liab to Unowned Veh.: 75K",
+        "Discount - Hybrid and Electric Vehicle included",
+    ]
 
 
 def test_intact_auto_dual_applicant_splits_names_from_application():
@@ -1756,6 +1877,87 @@ SINGH, NAVDEEP
     }
     cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
     assert "second_applicant_information" not in cleaned
+
+
+def test_intact_auto_removes_second_applicant_when_two_mvrs_but_single_applicant():
+    """Extra drivers/MVRs must not create second_applicant_information."""
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {"last_name": "YOUSIF", "first_name": "AKRAM"},
+        "second_applicant_information": {
+            "last_name": "OTHER",
+            "first_name": "DRIVER",
+            "gender": "Male",
+        },
+        "driver": [
+            {"licence_class": "G", "licence_number": "A11111111111111"},
+            {
+                "licence_class": "G",
+                "licence_number": "B22222222222222",
+                "last_name": "OTHER",
+                "first_name": "DRIVER",
+            },
+        ],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "Application_Form": """
+1. APPLICANT'S FULL NAME AND POSTAL ADDRESS
+NAME
+AKRAM YOUSIF
+ADDRESS
+123 MAIN ST
+""",
+        "MVR_1": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/07 ***\n"
+            "Name: YOUSIF, AKRAM\n"
+            "Licence: A11111111111111\n"
+        ),
+        "MVR_2": (
+            "*** MOTOR VEHICLE RECORD - 2026/04/07 ***\n"
+            "Name: OTHER, DRIVER\n"
+            "Licence: B22222222222222\n"
+        ),
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert "second_applicant_information" not in cleaned
+    assert cleaned["applicant_information"]["last_name"] == "YOUSIF"
+    assert cleaned["applicant_information"]["first_name"] == "AKRAM"
+    assert len(cleaned["driver"]) == 2
+
+
+def test_intact_auto_section_header_with_ampersand_does_not_trigger_dual_applicant():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {"last_name": "SINGH", "first_name": "NAVDEEP"},
+        "second_applicant_information": {"last_name": "GHOST", "first_name": "APPLICANT"},
+        "driver": [{"licence_class": "G"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "Application_Form": """
+1 Applicant's Name & Primary Address
+Name and Address
+SINGH, NAVDEEP
+""",
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert "second_applicant_information" not in cleaned
+
+
+def test_intact_auto_prompt_includes_universal_applicant_count_rule():
+    cfg = _load_json_config("intact_auto_fields_config.json")
+    generator = _make_generator("Intact_Auto", fields_config=cfg)
+    prompt = generator._build_prompt({"Application_Form": "NAME\nSINGH, NAVDEEP"})
+    assert "APPLICANT COUNT (EVERY POLICY)" in prompt
+    assert "Global extraction rules (all policies)" in prompt
+    assert "second_applicant_information" in prompt
+    assert "ONLY on Application_Form Section 1" in prompt or "Application Section 1" in prompt
+    assert "2+ MVR" in prompt or "2+ entries in `driver[]`" in prompt
 
 
 def test_intact_auto_fields_prompt_expands_risk_interest_object():
