@@ -2,12 +2,12 @@
   "company": "Intact_Auto",
   "description": "Intact Auto insurance JSON output format configuration",
   "global_extraction_rules": {
-    "second_applicant_information": "UNIVERSAL RULE — applies to EVERY Intact Auto policy: Whether `second_applicant_information` exists depends ONLY on Application_Form Section 1 APPLICANT'S FULL NAME (the name VALUE line under that section header — not the header itself). If that line lists ONE person → omit `second_applicant_information` entirely. If that line lists TWO people joined by `&` in `LAST, FIRST & LAST, FIRST` format → include `second_applicant_information` for the second person only. NEVER create `second_applicant_information` because there are 2+ MVR files, 2+ drivers in `driver[]`, 2+ Autoplus files, or names on Quote/Dash — additional drivers belong in `driver[]` only. Section headers containing `&` (e.g. 'Applicant's Name & Primary Address') are labels, not two applicants."
+    "second_applicant_information": "UNIVERSAL RULE — every Intact Auto policy: applicant count = Section 1 'Name and Address' box only (the name line above the street address). One printed name → omit `second_applicant_information`. Two names on that same line joined by `&` (Intact OAF dual-applicant format) → include `second_applicant_information` for the second person. Never infer a second applicant from MVR/driver/Autoplus/Quote counts or from Accident Benefits or other sections."
   },
   "fields": {
     "applicant_information": {
       "required": true,
-      "description": "Primary applicant personal information (every policy). Applicant count comes ONLY from Application Section 1 APPLICANT'S FULL NAME name line: one name → this block only; two names joined by '&' → this block is the FIRST person and the second goes in second_applicant_information. Never infer a second applicant from MVR/driver/Autoplus count.",
+      "description": "Primary applicant personal information (every policy). Read Section 1 'Name and Address' box: one printed name → this block only; two names on that line joined by '&' → first person here, second in second_applicant_information.",
       "fields": {
         "last_name": {
           "type": "string",
@@ -78,8 +78,8 @@
     },
     "second_applicant_information": {
       "required": false,
-      "description": "Second applicant personal information (every policy — optional). Include ONLY when Application Section 1 APPLICANT'S FULL NAME name VALUE line lists TWO names joined by '&' in 'LAST, FIRST & LAST, FIRST' format. For ALL other policies (single name on Application, or only extra drivers/MVRs) omit this entire object. Extra drivers are NOT applicants — use driver[] only.",
-      "extraction_logic": "UNIVERSAL: output this section only when Application Section 1 name VALUE line (not section headers) has '&' between two comma-formatted names. One applicant on Application → never output. Two MVRs or two drivers without dual names on Application → never output. Strip trailing codes like '(DATH11)'. Second person's MVR (if any) is authoritative for last_name/first_name.",
+      "description": "Second applicant (optional, every policy). Include ONLY when Section 1 'Name and Address' box prints two people on the same line joined by '&'. If that box shows one person, omit this object entirely — regardless of MVR/driver count.",
+      "extraction_logic": "Read the Section 1 name box only. One name printed → never output. Two names on that line with '&' → output for the second person. Do not pull names from Accident Benefits, Quote, MVR, or driver lists.",
       "fields": {
         "last_name": {
           "type": "string",

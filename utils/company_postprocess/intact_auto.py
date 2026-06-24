@@ -131,10 +131,26 @@ def _strip_parenthetical_suffix(text: str) -> str:
     return re.sub(r"\s*\([^)]*\)\s*$", "", text).strip()
 
 
-# Section headers like "Applicant's Name & Primary Address" contain '&' but are NOT two applicants.
-_DUAL_APPLICANT_HEADER_LINE_PATTERN = re.compile(
-    r"(?i)(applicant'?s?\s+(?:full\s+)?name|name\s+and\s+address|primary\s+address|"
-    r"postal\s+code|phone\s+no|section\s+\d|lienholder)"
+_SECTION1_HEADER_LABEL_PATTERN = re.compile(
+    r"(?i)^\s*(?:1\s*[\.\):\-]?\s*)?applicant'?s?\s+(?:full\s+)?name"
+    r"|^name\s+and\s+address\s*$"
+)
+
+_SECTION1_START_PATTERN = re.compile(
+    r"(?i)applicant'?s?\s+(?:full\s+)?name|name\s+and\s+address"
+)
+_SECTION1_END_PATTERN = re.compile(
+    r"(?i)(?:^|\n)\s*2\s*[\.\):\-]?\s*(?:policy\s+period|length\s+of\s+(?:policy|contract))"
+    r"|(?:^|\n)\s*3\s*[\.\):\-]?\s*described\s+automobile"
+)
+
+_SECTION1_NAME_FIELD_STOP_PATTERN = re.compile(
+    r"(?i)^\s*(?:postal\s+code|phone\s+no|email\b|work\s*\(|home\s*\(|cell\s*\()"
+)
+_STREET_OR_UNIT_LINE_PATTERN = re.compile(r"^\s*\d")
+_CITY_PROVINCE_LINE_PATTERN = re.compile(
+    r",\s*(?:ON|QC|BC|AB|MB|SK|NS|NB|PE|NL|NT|NU|YT)\s*$",
+    flags=re.IGNORECASE,
 )
 
 
@@ -151,51 +167,118 @@ def _get_application_form_only_text(documents: Optional[Dict[str, str]]) -> str:
     return "\n".join(parts)
 
 
-def _split_dual_applicant_name_line(line: str):
-    """
-    Split 'LAST, FIRST & LAST, FIRST' into two raw name strings.
-    Returns (left_raw, right_raw) or None.
+def _extract_application_section1_text(app_text: str) -> str:
+    """Return Application Section 1 block only (applicant name/address — not later sections)."""
+    if not isinstance(app_text, str) or not app_text.strip():
+        return ""
 
-    Both sides must use comma-separated LAST, FIRST format (not section headers).
+    start_match = _SECTION1_START_PATTERN.search(app_text)
+    if not start_match:
+        return "\n".join(app_text.splitlines()[:25])
+
+    section = app_text[start_match.start() :]
+    end_match = _SECTION1_END_PATTERN.search(section)
+    if end_match:
+        section = section[: end_match.start()]
+    return section[:1200]
+
+
+def _line_looks_like_address_not_name(line: str) -> bool:
+    if not isinstance(line, str) or not line.strip():
+        return False
+    if _SECTION1_NAME_FIELD_STOP_PATTERN.match(line):
+        return True
+    if _STREET_OR_UNIT_LINE_PATTERN.match(line):
+        return True
+    if _CITY_PROVINCE_LINE_PATTERN.search(line):
+        return True
+    return False
+
+
+def _extract_section1_name_field_text(section1: str) -> str:
     """
-    if not isinstance(line, str) or "&" not in line:
+    Applicant name VALUE from Section 1 'Name and Address' box — the line(s) a
+    human reads above the street address, not headers or later form sections.
+    """
+    if not isinstance(section1, str) or not section1.strip():
+        return ""
+
+    lines = [ln.strip() for ln in section1.splitlines()]
+    capture = False
+    name_lines = []
+
+    for line in lines:
+        if not line:
+            continue
+        if re.match(r"(?i)^name\s+and\s+address\s*$", line):
+            capture = True
+            continue
+        if not capture:
+            if _SECTION1_HEADER_LABEL_PATTERN.match(line):
+                continue
+            continue
+        if _line_looks_like_address_not_name(line):
+            break
+        if re.match(r"(?i)^(?:name|address)\s*$", line):
+            continue
+        name_lines.append(line)
+        if len(name_lines) >= 2 and "&" not in " ".join(name_lines):
+            break
+
+    return " ".join(name_lines).strip()
+
+
+def _get_section1_name_field_text(documents: Optional[Dict[str, str]]) -> str:
+    app_text = _get_application_form_only_text(documents)
+    if not app_text:
+        return ""
+    return _extract_section1_name_field_text(_extract_application_section1_text(app_text))
+
+
+def _parse_dual_names_from_section1_name_field(name_field: str):
+    """
+    Intact OAF prints two applicants on one name-box line joined by '&'.
+    Only parse that box — never scan Accident Benefits or other sections.
+    """
+    if not isinstance(name_field, str) or "&" not in name_field:
         return None
-    if _DUAL_APPLICANT_HEADER_LINE_PATTERN.search(line):
-        return None
-    parts = re.split(r"\s*&\s*", line, maxsplit=1)
+    text = _strip_parenthetical_suffix(name_field.strip())
+    parts = re.split(r"\s*&\s*", text, maxsplit=1)
     if len(parts) != 2:
         return None
     left = _strip_parenthetical_suffix(parts[0].strip())
     right = _strip_parenthetical_suffix(parts[1].strip())
     if not left or not right:
         return None
-    # Intact dual-applicant name lines always print two 'LAST, FIRST' segments.
-    if "," not in left or "," not in right:
-        return None
-    if not _parse_mvr_name(left) or not _parse_mvr_name(right):
+    parsed1 = _parse_mvr_name(left)
+    parsed2 = _parse_mvr_name(right)
+    if not parsed1 or not parsed2:
         return None
     return left, right
 
 
 def _extract_dual_applicant_names_from_application(documents: Optional[Dict[str, str]]):
-    """
-    Return (name1_raw, name2_raw) ONLY when Application Section 1 lists two
-    '&'-joined applicant names. Ignores MVR/driver count and non-Application docs.
-    """
-    app_text = _get_application_form_only_text(documents)
-    if not app_text:
+    """Return (name1_raw, name2_raw) only when Section 1 name box lists two people."""
+    name_field = _get_section1_name_field_text(documents)
+    if not name_field:
         return None
+    return _parse_dual_names_from_section1_name_field(name_field)
 
-    for line in app_text.splitlines():
-        split = _split_dual_applicant_name_line(line.strip())
-        if split:
-            return split
 
-    return None
+def _second_applicant_grounded_in_section1_name_field(second: Dict, name_field: str) -> bool:
+    """Second applicant must appear in the Section 1 name box (not hallucinated elsewhere)."""
+    if not isinstance(second, dict) or not isinstance(name_field, str) or not name_field.strip():
+        return False
+    upper = name_field.upper()
+    for key in ("last_name", "first_name"):
+        value = second.get(key)
+        if isinstance(value, str) and value.strip() and value.strip().upper() in upper:
+            return True
+    return False
 
 
 def _application_has_dual_applicant_names(documents: Optional[Dict[str, str]]) -> bool:
-    """True only when Application Section 1 name line lists two people joined by '&'."""
+    """True only when Section 1 name box lists two applicants."""
     return _extract_dual_applicant_names_from_application(documents) is not None
 
 
@@ -212,17 +295,33 @@ def _remove_second_applicant_unless_dual_on_application(
     data: Dict, documents: Optional[Dict[str, str]]
 ) -> Dict:
     """
-    second_applicant_information is allowed ONLY when Application Section 1
-    lists two applicant names joined by '&'. Multiple drivers/MVRs do not qualify.
+    Keep second_applicant_information only when Section 1 'Name and Address' name
+    box lists two applicants. LLM hallucinations (coverage text, extra drivers)
+    are dropped when the name box does not contain that second person.
     """
     if not isinstance(data, dict):
         return data
-    if not _application_has_dual_applicant_names(documents):
+
+    name_field = _get_section1_name_field_text(documents)
+    dual = _parse_dual_names_from_section1_name_field(name_field)
+
+    if not dual:
         if "second_applicant_information" in data:
             print(
-                "[INFO] Removed second_applicant_information — Application Section 1 "
-                "has a single applicant (extra drivers/MVRs are not applicants)"
+                "[INFO] Removed second_applicant_information — Section 1 name box "
+                f"lists one applicant only: {name_field!r}"
             )
+        data.pop("second_applicant_information", None)
+        return data
+
+    second = data.get("second_applicant_information")
+    if isinstance(second, dict) and not _second_applicant_grounded_in_section1_name_field(
+        second, name_field
+    ):
+        print(
+            "[INFO] Removed second_applicant_information — second person not in "
+            f"Section 1 name box {name_field!r}"
+        )
         data.pop("second_applicant_information", None)
     return data
 

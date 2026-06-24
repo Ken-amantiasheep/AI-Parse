@@ -347,23 +347,19 @@ Before extracting `has_loan`, `type_of_interest`, `company_name`, `address`, or 
 
     @staticmethod
     def _build_intact_auto_applicant_count_alert() -> str:
-        """Universal rule: applicant count = Application Section 1 name line only (all policies)."""
+        """Universal rule: read Section 1 Name and Address box like a human would."""
         return """## ⚠️ INTACT AUTO — APPLICANT COUNT (EVERY POLICY) ⚠️
 
-**The ONLY signal for how many applicants to output is Application_Form Section 1 — the APPLICANT'S FULL NAME value line** (the printed name(s) under that header, NOT the header text).
+**Open Application Section 1 and read only the "Name and Address" box** — the printed name line above the street address. That box is the sole source for how many applicants exist.
 
-| Application Section 1 name line | Output |
-|--------------------------------|--------|
-| **One** name (any format: `AKRAM YOUSIF`, `SINGH, NAVDEEP`, etc.) | `applicant_information` only — **omit** `second_applicant_information` |
-| **Two** names joined by `&` in `LAST, FIRST & LAST, FIRST` format | `applicant_information` = first person; `second_applicant_information` = second person |
+| What you see in the Section 1 name box | Output |
+|----------------------------------------|--------|
+| **One** person printed (e.g. `Dale, Ajeh Mary` or `AKRAM YOUSIF`) | `applicant_information` only — **omit** `second_applicant_information` |
+| **Two** people on the same name line, joined by `&` (Intact OAF format) | `applicant_information` = first; `second_applicant_information` = second |
 
-**Never** treat these as a second applicant (on any policy):
-- 2+ MVR files
-- 2+ entries in `driver[]`
-- Autoplus / Dash / Quote names
-- Section headers with `&` (e.g. `Applicant's Name & Primary Address`)
+**Do not** create a second applicant because you see extra MVRs, drivers, Autoplus, Quote/Dash, or text from Accident Benefits / other sections. A human looking at Section 1 would not count those as applicants.
 
-Additional drivers → `driver[]` at index 1+ only. They are drivers, not applicants.
+Additional drivers → `driver[]` at index 1+ only.
 
 """
 

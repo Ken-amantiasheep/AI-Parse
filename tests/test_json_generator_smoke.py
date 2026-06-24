@@ -1949,6 +1949,75 @@ SINGH, NAVDEEP
     assert "second_applicant_information" not in cleaned
 
 
+def test_intact_auto_section1_name_field_extraction_dale_single_applicant():
+    from utils.company_postprocess.intact_auto import (
+        _extract_section1_name_field_text,
+        _parse_dual_names_from_section1_name_field,
+    )
+
+    section1 = """
+1. Applicant's Name & Primary Address
+Name and Address
+Dale, Ajeh Mary (DAAJ01)
+24-1845 Main St
+Val Caron, ON
+Postal Code P3N 1B6
+"""
+    name_field = _extract_section1_name_field_text(section1)
+    assert name_field == "Dale, Ajeh Mary (DAAJ01)"
+    assert _parse_dual_names_from_section1_name_field(name_field) is None
+
+
+def test_intact_auto_removes_second_applicant_when_attendant_care_declined_hallucination():
+    """Accident Benefits 'Attendant Care Declined' must not become second_applicant."""
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "application_info": {},
+        "applicant_information": {
+            "last_name": "DALE",
+            "first_name": "AJEH MARY",
+            "postal_code": "P3N1B6",
+            "full_address": "24-1845 Main St, Val Caron, ON",
+            "phone": "6479177795",
+            "email": "ajehm86@gmail.com",
+        },
+        "second_applicant_information": {
+            "last_name": "Attendant Care Declined",
+            "first_name": "Attendant Care Declined",
+            "postal_code": "P3N1B6",
+            "full_address": "24-1845 Main St, Val Caron, ON",
+            "phone": "6479177795",
+            "email": "ajehm86@gmail.com",
+        },
+        "driver": [{"licence_class": "G"}],
+        "drivers_information": {},
+        "vehicles_information": {},
+    }
+    documents = {
+        "Application_Form": """
+CSIO Ontario Application for Automobile Insurance Owner's Form (OAF 1)
+1. Applicant's Name & Primary Address
+Name and Address
+Dale, Ajeh Mary
+24-1845 Main St
+Val Caron
+Postal Code P3N 1B6
+Phone No. Home (647) 917-7795
+Email ajehm86@gmail.com
+2. Policy Period
+Effective Date 2026/06/22
+3. Described Automobile
+2021 TOYOTA RAV4
+4. Accident Benefits
+Medical, Rehabilitation & Attendant Care, Declined
+Attendant Care Declined
+""",
+    }
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+    assert "second_applicant_information" not in cleaned
+    assert cleaned["applicant_information"]["last_name"] == "DALE"
+
+
 def test_intact_auto_prompt_includes_universal_applicant_count_rule():
     cfg = _load_json_config("intact_auto_fields_config.json")
     generator = _make_generator("Intact_Auto", fields_config=cfg)
