@@ -64,7 +64,7 @@ _DRIVER_IDENTITY_KEYS = (
     "date_of_birth",
     "marital_status",
 )
-_APPLICANT_ADDRESS_KEYS = ("postal_code", "full_address")
+_APPLICANT_ADDRESS_KEYS = ("postal_code", "unit_number", "full_address")
 _APPLICANT_CONTACT_KEYS = _APPLICANT_ADDRESS_KEYS + ("phone", "email")
 _DRIVER_ADDRESS_KEYS = _APPLICANT_ADDRESS_KEYS
 _ASSIGNMENT_COMMON_KEYS = (
@@ -119,10 +119,44 @@ def _normalize_intact_applicant_information(data: Dict) -> Dict:
     applicant = data.get("applicant_information")
     if isinstance(applicant, dict):
         _normalize_applicant_phone(applicant)
+        _fill_unit_number_from_address(applicant)
     second = data.get("second_applicant_information")
     if isinstance(second, dict):
         _normalize_applicant_phone(second)
+        if isinstance(applicant, dict):
+            if _is_missing(second.get("unit_number")) and not _is_missing(applicant.get("unit_number")):
+                second["unit_number"] = applicant["unit_number"]
+        _fill_unit_number_from_address(second)
     return data
+
+
+def _extract_unit_number_from_address_text(text: str) -> Optional[str]:
+    """Best-effort unit from a single address line when not extracted separately."""
+    if not isinstance(text, str):
+        return None
+    value = text.strip()
+    if not value:
+        return None
+
+    leading = re.match(r"^(\d+)\s*-\s*\d", value)
+    if leading:
+        return leading.group(1)
+
+    labeled = re.search(
+        r"(?i)\b(?:unit|suite|ste|apt|apartment|#)\s*\.?\s*([A-Za-z0-9-]+)",
+        value,
+    )
+    if labeled:
+        return labeled.group(1)
+    return None
+
+
+def _fill_unit_number_from_address(record: Dict) -> None:
+    if not isinstance(record, dict) or not _is_missing(record.get("unit_number")):
+        return
+    unit = _extract_unit_number_from_address_text(record.get("full_address"))
+    if unit:
+        record["unit_number"] = unit
 
 
 def _strip_parenthetical_suffix(text: str) -> str:
@@ -639,9 +673,23 @@ def _split_lienholder_company_address(line_body: str, company_name: str):
     address = remainder
     if postal_code:
         address = _CANADIAN_POSTAL_PATTERN.sub("", remainder, count=1).strip(" ,")
+    unit_number = _extract_unit_number_from_address_text(address)
+    if unit_number:
+        address = re.sub(
+            rf"(?i)^\s*{re.escape(unit_number)}\s*-\s*",
+            "",
+            address,
+            count=1,
+        )
+        address = re.sub(
+            rf"(?i)\b(?:unit|suite|ste|apt|apartment|#)\s*\.?\s*{re.escape(unit_number)}\b[,]?\s*",
+            "",
+            address,
+            count=1,
+        )
     address = re.sub(r",\s*,", ", ", address)
     address = re.sub(r"\s+", " ", address).strip(" ,")
-    return address, postal_code
+    return address, postal_code, unit_number
 
 
 def _parse_lienholder_row_body(body: str) -> Optional[Dict]:
@@ -653,16 +701,19 @@ def _parse_lienholder_row_body(body: str) -> Optional[Dict]:
     company_name = _match_finance_company(text)
     if not company_name:
         return None
-    address, postal_code = _split_lienholder_company_address(text, company_name)
+    address, postal_code, unit_number = _split_lienholder_company_address(text, company_name)
     if not postal_code and not re.search(r"(?:PO\s*Box|P\.?O\.?\s*Box)", text, flags=re.IGNORECASE):
         return None
     if _looks_like_person_name(company_name):
         return None
-    return {
+    parsed = {
         "company_name": company_name,
         "address": address,
         "postal_code": postal_code or "",
     }
+    if unit_number:
+        parsed["unit_number"] = unit_number
+    return parsed
 
 
 def _store_lienholder_row(result: Dict[int, Dict], auto_no: int, body: str, parsed: Dict) -> None:
@@ -999,6 +1050,8 @@ def _apply_interest_from_application(data: Dict, documents: Optional[Dict[str, s
 
         if _is_missing(interest.get("address")) and row.get("address"):
             interest["address"] = row["address"]
+        if _is_missing(interest.get("unit_number")) and row.get("unit_number"):
+            interest["unit_number"] = row["unit_number"]
         if _is_missing(interest.get("postal_code")) and row.get("postal_code"):
             interest["postal_code"] = row["postal_code"]
 
@@ -1272,19 +1325,100 @@ _WINTER_TIRE_DISCOUNT_PATTERN = re.compile(
     r"Discount\s*-\s*Winter\s+Tires?\s+included",
     flags=re.IGNORECASE,
 )
+_WINTER_TIRES_PURCHASE_HEADER_PATTERN = re.compile(
+    r"(?i)winter\s+tires.*(?:parking\s+at\s+night|purchase\s+price|list\s+price)"
+)
+_WINTER_TIRES_BEFORE_PARKING_PATTERN = re.compile(
+    r"(?i)\b(Yes|No)\b\s+(?:Private\s+Driveway|Garage|Street|Locked|Unlocked|Carport|"
+    r"Driveway|Indoor|Outdoor|Parking|Attached|Detached|Residential|Car\s+Port)"
+)
 
 
 def _quote_has_winter_tire_discount(text: str) -> bool:
     return bool(_WINTER_TIRE_DISCOUNT_PATTERN.search(text or ""))
 
 
-def _extract_winter_tire_discount_by_vehicle(documents: Optional[Dict[str, str]]) -> Dict[int, bool]:
-    """
-    Determine winter_tires from Quote DIS discount lines.
+def _parse_winter_tires_from_purchase_value_row(value_line: str) -> Optional[str]:
+    """Parse Yes/No from the purchase-table value row above the Winter Tires header."""
+    if not isinstance(value_line, str):
+        return None
+    text = value_line.strip()
+    if not text:
+        return None
+    if text in ("Yes", "No"):
+        return text
 
-    Rule: Winter Tire discount present for vehicle N -> Yes; absent -> No.
-    Supports headers like "Vehicle 1 of 2" and "1 of 2 | 2025 HONDA ...".
+    match = _WINTER_TIRES_BEFORE_PARKING_PATTERN.search(text)
+    if match:
+        return match.group(1).title()
+
+    # Horizontal row with empty List/Purchase Price columns: ... <km> Yes|No <parking>
+    tail = re.search(
+        r"(?i)\b(\d{3,6})\s+(Yes|No)\s+(.+)$",
+        text,
+    )
+    if tail:
+        return tail.group(2).title()
+    return None
+
+
+def _parse_winter_tires_from_purchase_table(block: str) -> Optional[str]:
     """
+    Read winter_tires from Quote purchase table for one vehicle block.
+
+    Supports vertical OCR (value line above 'Winter Tires' label) and horizontal rows
+    like 'Used 06/13/2026 29662 Yes Private Driveway' above the column headers.
+    """
+    if not isinstance(block, str) or not block.strip():
+        return None
+
+    lines = [ln.strip() for ln in block.splitlines() if ln and ln.strip()]
+    for idx, line in enumerate(lines):
+        if re.fullmatch(r"(?i)winter\s+tires", line) and idx > 0:
+            prev = lines[idx - 1]
+            if prev in ("Yes", "No"):
+                return prev
+
+        if not _WINTER_TIRES_PURCHASE_HEADER_PATTERN.search(line):
+            continue
+        if idx == 0:
+            continue
+        parsed = _parse_winter_tires_from_purchase_value_row(lines[idx - 1])
+        if parsed in ("Yes", "No"):
+            return parsed
+    return None
+
+
+def _resolve_winter_tires_for_vehicle_block(block: str) -> str:
+    """Discount line => Yes; otherwise purchase-table Winter Tires column; else No."""
+    if _quote_has_winter_tire_discount(block):
+        return "Yes"
+    table_value = _parse_winter_tires_from_purchase_table(block)
+    if table_value in ("Yes", "No"):
+        return table_value
+    return "No"
+
+
+def _resolve_winter_tires_from_blocks(blocks) -> str:
+    """Any 'Discount - Winter Tire included' => Yes; else merge purchase-table values."""
+    for block in blocks:
+        if _quote_has_winter_tire_discount(block):
+            return "Yes"
+
+    table_values = []
+    for block in blocks:
+        table_value = _parse_winter_tires_from_purchase_table(block)
+        if table_value in ("Yes", "No"):
+            table_values.append(table_value)
+    if "Yes" in table_values:
+        return "Yes"
+    if table_values:
+        return table_values[0]
+    return "No"
+
+
+def _extract_winter_tires_by_vehicle(documents: Optional[Dict[str, str]]) -> Dict[int, str]:
+    """Determine winter_tires per vehicle from Quote purchase table and DIS discounts."""
     quote = _get_quote_document_text(documents)
     if not quote:
         return {}
@@ -1294,19 +1428,23 @@ def _extract_winter_tire_discount_by_vehicle(documents: Optional[Dict[str, str]]
     )
     matches = list(vehicle_pattern.finditer(quote))
     if not matches:
-        return {1: _quote_has_winter_tire_discount(quote)}
+        return {1: _resolve_winter_tires_for_vehicle_block(quote)}
 
-    result: Dict[int, bool] = {}
+    blocks_by_vehicle: Dict[int, list] = {}
     for idx, match in enumerate(matches):
         vehicle_no = int(match.group(1))
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(quote)
         block = quote[match.start() : end]
-        result[vehicle_no] = _quote_has_winter_tire_discount(block)
-    return result
+        blocks_by_vehicle.setdefault(vehicle_no, []).append(block)
+
+    return {
+        vehicle_no: _resolve_winter_tires_from_blocks(blocks)
+        for vehicle_no, blocks in blocks_by_vehicle.items()
+    }
 
 
 def _normalize_winter_tires_from_quote_discount(data: Dict, documents: Optional[Dict[str, str]]) -> Dict:
-    """Set risk[].winter_tires from Quote 'Discount - Winter Tire included' presence."""
+    """Set risk[].winter_tires from Quote purchase-table column and DIS discount lines."""
     if not isinstance(data, dict):
         return data
 
@@ -1317,15 +1455,14 @@ def _normalize_winter_tires_from_quote_discount(data: Dict, documents: Optional[
     if not isinstance(risks, list) or not risks:
         return data
 
-    winter_by_vehicle = _extract_winter_tire_discount_by_vehicle(documents)
+    winter_by_vehicle = _extract_winter_tires_by_vehicle(documents)
     if not winter_by_vehicle:
         return data
 
     for idx, risk in enumerate(risks):
         if not isinstance(risk, dict):
             continue
-        has_discount = winter_by_vehicle.get(idx + 1, False)
-        risk["winter_tires"] = "Yes" if has_discount else "No"
+        risk["winter_tires"] = winter_by_vehicle.get(idx + 1, "No")
     return data
 
 
@@ -1546,6 +1683,38 @@ def _parse_date_text(value: str) -> Optional[date]:
         except ValueError:
             continue
     return None
+
+
+def _compute_years_with_previous_insurer(start: date, end: date) -> int:
+    """
+    Full years with previous insurer — floor partial years.
+
+    A period counts as N years only after the N-th anniversary has passed
+    (end date must be strictly after the anniversary, not on it).
+    E.g. 2024-01-02 → 2025-01-02 = 0; 2024-01-02 → 2025-01-03 = 1.
+    """
+    if end < start:
+        return 0
+    years = end.year - start.year
+    if (end.month, end.day) <= (start.month, start.day):
+        years -= 1
+    return max(0, years)
+
+
+def _years_with_previous_insurer_from_driver_dates(
+    generator,
+    insured_since_value,
+    expiry_value,
+) -> Optional[int]:
+    start_text = _to_full_date(generator, insured_since_value)
+    end_text = _to_full_date(generator, expiry_value)
+    if not start_text or not end_text:
+        return None
+    start = _parse_date_text(start_text)
+    end = _parse_date_text(end_text)
+    if not start or not end:
+        return None
+    return _compute_years_with_previous_insurer(start, end)
 
 
 # MVR pull time: upper-right black timestamp on CGI/Ontario abstracts, e.g.
@@ -2097,6 +2266,23 @@ def _promote_lapse_fields_to_arrays(driver: Dict) -> None:
             driver[key] = arr
 
 
+def _driver_has_non_payment_lapse(driver: Dict) -> bool:
+    if not isinstance(driver, dict) or driver.get("lapse_in_insurance") != "Yes":
+        return False
+    for desc in _lapse_descriptions_iter(driver.get("lapse_in_insurance_description")):
+        if isinstance(desc, str) and desc.strip().lower() == "non-payment":
+            return True
+    return False
+
+
+def _normalize_non_payment_company(driver: Dict) -> None:
+    """Keep non_payment_company only when a Non-Payment lapse exists."""
+    if not isinstance(driver, dict):
+        return
+    if not _driver_has_non_payment_lapse(driver):
+        driver.pop("non_payment_company", None)
+
+
 def _lapse_descriptions_iter(value):
     """Yield lapse description strings whether the field is scalar or list."""
     if value is None:
@@ -2501,6 +2687,8 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
                 _promote_lapse_fields_to_arrays(driver)
                 _strip_empty_trailing_lapses(driver)
 
+            _normalize_non_payment_company(driver)
+
             has_no_auto_lapse = any(
                 isinstance(desc, str) and desc.strip().lower() == "no automobile"
                 for desc in _lapse_descriptions_iter(driver.get("lapse_in_insurance_description"))
@@ -2513,6 +2701,20 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
             ):
                 driver["expiry_date"] = _to_full_date(generator, effective_date)
                 print("[INFO] Filled expiry_date for No Automobile lapse using policy_effective_date")
+
+            expiry_date = _to_full_date(generator, driver.get("expiry_date"))
+            if expiry_date is not None:
+                driver["expiry_date"] = expiry_date
+
+            previous_insurer = driver.get("previous_insurer")
+            if isinstance(previous_insurer, str) and previous_insurer.strip().lower() != "no prior insurer":
+                years = _years_with_previous_insurer_from_driver_dates(
+                    generator,
+                    driver.get("insured_without_interruption_since"),
+                    driver.get("expiry_date"),
+                )
+                if years is not None:
+                    driver["number_of_years_with_previous_insurer"] = years
 
     risks = data.get("risk")
     # Backward compatibility: some model responses still emit a single risk object.

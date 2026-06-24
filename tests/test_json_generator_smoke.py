@@ -8,9 +8,13 @@ from utils import json_generator_pure
 from utils import company_config
 from utils.company_validators import get_required_top_level_fields
 from utils.company_postprocess import pipeline as company_postprocess_pipeline
+from datetime import date
+
 from utils.company_postprocess.intact_auto import (
     _build_mvr_name_index,
+    _compute_years_with_previous_insurer,
     _extract_lienholders_by_auto_no,
+    _normalize_intact_applicant_information,
     _parse_mvr_name,
     _parse_vertical_usage_block,
 )
@@ -123,6 +127,7 @@ def test_validate_and_clean_json_for_intact_dates_and_membership_cleanup():
     assert "lapse_in_insurance_description" not in cleaned["driver"][0]
     assert "lapse_start" not in cleaned["driver"][0]
     assert "lapse_end" not in cleaned["driver"][0]
+    assert "non_payment_company" not in cleaned["driver"][0]
     assert cleaned["claim"] == {"has_claim": "No"}
     assert cleaned["risk"][0]["interest"] == {"has_loan": "No"}
     assert cleaned["application_info"] == {}
@@ -1076,6 +1081,7 @@ def test_intact_auto_merges_legacy_root_address_into_applicant_information():
     assert "address" not in cleaned
     app = cleaned["applicant_information"]
     assert app["postal_code"] == "M4C5L6"
+    assert app["unit_number"] == "511"
     assert app["full_address"] == "511-5 Massey Sq, East York, ON"
     assert app["phone"] == "4165550100"
     assert app["email"] == "julius@example.com"
@@ -1364,6 +1370,50 @@ Discount - Graduated License Holder included
     assert cleaned["risk"][0]["winter_tires"] == "No"
 
 
+def test_intact_auto_winter_tires_discount_overrides_purchase_table_no():
+    """Discount - Winter Tire included always wins => Yes."""
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [{"winter_tires": "No"}],
+        "coverages": {"additional_coverages": []},
+    }
+    documents = {
+        "Quote": """
+Vehicle 1 of 1 | 2021 TOYOTA RAV4
+Used 06/13/2026 29662 No Private Driveway
+Purchase Purchase Date km at Purchase List Price New Purchase Price Winter Tires Parking at Night
+DIS
+Discount - Winter Tire included
+"""
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["risk"][0]["winter_tires"] == "Yes"
+
+
+def test_intact_auto_winter_tires_from_quote_purchase_table_column():
+    """Purchase-table Winter Tires column overrides absent DIS discount."""
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "risk": [{"winter_tires": "No"}],
+        "coverages": {"additional_coverages": []},
+    }
+    documents = {
+        "Quote": """
+Vehicle 1 of 1 | Private Passenger - 2021 TOYOTA RAV4 LE 4DR 2WD
+Used 06/13/2026 29662 Yes Private Driveway
+Purchase Purchase Date km at Purchase List Price New Purchase Price Winter Tires Parking at Night
+Condition
+Drivers
+"""
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["risk"][0]["winter_tires"] == "Yes"
+
+
 def test_intact_auto_winter_tires_from_quote_discount_per_vehicle():
     generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
     data = {
@@ -1389,6 +1439,92 @@ Discount - Hybrid and Electric Vehicle included
 
     assert cleaned["risk"][0]["winter_tires"] == "Yes"
     assert cleaned["risk"][1]["winter_tires"] == "No"
+
+
+def test_compute_years_with_previous_insurer_floors_partial_years():
+    assert _compute_years_with_previous_insurer(date(2024, 1, 2), date(2025, 1, 2)) == 0
+    assert _compute_years_with_previous_insurer(date(2024, 1, 2), date(2025, 1, 3)) == 1
+    assert _compute_years_with_previous_insurer(date(2020, 1, 1), date(2023, 1, 1)) == 2
+    assert _compute_years_with_previous_insurer(date(2020, 1, 1), date(2023, 1, 2)) == 3
+
+
+def test_intact_auto_number_of_years_with_previous_insurer_postprocess_floor():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "driver": [
+            {
+                "previous_insurer": "Intact Insurance",
+                "insured_without_interruption_since": "2024-01-02",
+                "expiry_date": "2025-01-02",
+                "number_of_years_with_previous_insurer": 1,
+            },
+            {
+                "previous_insurer": "Intact Insurance",
+                "insured_without_interruption_since": "2024-01-02",
+                "expiry_date": "2025-01-03",
+                "number_of_years_with_previous_insurer": 0,
+            },
+        ],
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert cleaned["driver"][0]["number_of_years_with_previous_insurer"] == 0
+    assert cleaned["driver"][1]["number_of_years_with_previous_insurer"] == 1
+
+
+def test_intact_auto_non_payment_company_kept_for_non_payment_lapse():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "driver": [
+            {
+                "lapse_in_insurance": "Yes",
+                "lapse_in_insurance_description": ["Non-Payment"],
+                "lapse_start": ["2024-01-24"],
+                "lapse_end": ["2026-06-10"],
+                "non_payment_company": "Intact Insurance",
+            }
+        ],
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert cleaned["driver"][0]["non_payment_company"] == "Intact Insurance"
+
+
+def test_intact_auto_non_payment_company_removed_without_non_payment_lapse():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "driver": [
+            {
+                "lapse_in_insurance": "Yes",
+                "lapse_in_insurance_description": ["No Automobile"],
+                "lapse_start": ["2024-01-24"],
+                "lapse_end": ["2026-06-10"],
+                "non_payment_company": "Intact Insurance",
+            }
+        ],
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert "non_payment_company" not in cleaned["driver"][0]
+
+
+def test_intact_applicant_syncs_unit_number_to_second_applicant():
+    data = {
+        "applicant_information": {
+            "unit_number": "24",
+            "full_address": "1845 Main St, Val Caron, ON",
+        },
+        "second_applicant_information": {
+            "full_address": "1845 Main St, Val Caron, ON",
+        },
+    }
+
+    _normalize_intact_applicant_information(data)
+
+    assert data["second_applicant_information"]["unit_number"] == "24"
 
 
 def test_parse_vertical_usage_block_reads_daily_km_above_label():

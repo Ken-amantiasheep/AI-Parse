@@ -1712,6 +1712,16 @@ The overall JSON structure, section names, and nesting MUST follow this example 
                     driver.pop("lapse_in_insurance_description", None)
                     driver.pop("lapse_start", None)
                     driver.pop("lapse_end", None)
+                    driver.pop("non_payment_company", None)
+                elif not any(
+                    isinstance(desc, str) and desc.strip().lower() == "non-payment"
+                    for desc in (
+                        driver.get("lapse_in_insurance_description")
+                        if isinstance(driver.get("lapse_in_insurance_description"), list)
+                        else [driver.get("lapse_in_insurance_description")]
+                    )
+                ):
+                    driver.pop("non_payment_company", None)
 
                 licence_class = driver.get("licence_class")
                 if licence_class == "G1":

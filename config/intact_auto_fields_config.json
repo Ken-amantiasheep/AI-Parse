@@ -53,12 +53,19 @@
           "extraction_logic": "Extract the applicant's postal code from the application (Canadian format X9X9X9, e.g. 'M4C 5L6' or 'M4C5L6').",
           "description": "Applicant postal code in Canadian format X9X9X9"
         },
+        "unit_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract the unit / apartment / suite number from Application Section 1 mailing address when shown (e.g. '24' from '24-1845 Main St', '511' from '511-5 Massey Sq', or 'Unit 5' / '#402'). Output the unit value only — not the street, city, or province. Omit when no unit is printed.",
+          "description": "Unit/apartment/suite number for applicant mailing address"
+        },
         "full_address": {
           "type": "string",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract the applicant's full mailing address from the application (street/unit, city, province) without postal code, e.g. '511-5 Massey Sq, East York, ON'.",
-          "description": "Applicant full address (street, city, province — no postal code)"
+          "extraction_logic": "Extract the applicant's full mailing address from the application (street, city, province) without postal code and without the unit number when unit_number is extracted separately — e.g. '1845 Main St, Val Caron, ON' when unit is '24', or '5 Massey Sq, East York, ON' when unit is '511'.",
+          "description": "Applicant full address (street, city, province — no postal code, no unit)"
         },
         "phone": {
           "type": "string",
@@ -125,12 +132,19 @@
           "extraction_logic": "Extract the second applicant's postal code from the application (Canadian format X9X9X9). When both applicants share one primary address, repeat the same postal_code as applicant_information.",
           "description": "Second applicant postal code in Canadian format X9X9X9"
         },
+        "unit_number": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "Extract the second applicant's unit / apartment / suite number from Application Section 1 when shown. When both share one address, repeat applicant_information.unit_number. Omit when no unit is printed.",
+          "description": "Unit/apartment/suite number for second applicant mailing address"
+        },
         "full_address": {
           "type": "string",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Extract the second applicant's full mailing address from the application (street/unit, city, province) without postal code. When both share one primary address, repeat applicant_information.full_address.",
-          "description": "Second applicant full address (street, city, province — no postal code)"
+          "extraction_logic": "Extract the second applicant's full mailing address from the application (street, city, province) without postal code and without unit when unit_number is separate. When both share one primary address, repeat applicant_information.full_address.",
+          "description": "Second applicant full address (street, city, province — no postal code, no unit)"
         },
         "phone": {
           "type": "string",
@@ -225,7 +239,7 @@
           "type": "string",
           "mode": "radio",
           "required": true,
-          "extraction_logic": "Use the Quote DIS/discount section for THIS vehicle. If the Quote shows a discount line such as 'Discount - Winter Tire included' / 'Discount - Winter Tires included' for this vehicle, output 'Yes'. If that Winter Tire discount line is absent for this vehicle, output 'No'. Do not infer from purchase table, season, province, vehicle type, or general assumptions.",
+          "extraction_logic": "Hard rule for THIS vehicle on the Quote: if the DIS/discount section shows 'Discount - Winter Tire included' or 'Discount - Winter Tires included', output 'Yes' — this discount line alone is sufficient. Only when that discount line is absent, read the purchase-table 'Winter Tires' column (Yes/No). If neither source is present, output 'No'. Do not infer from season, province, or vehicle type.",
           "description": "Whether the vehicle has winter tires",
           "options": ["Yes", "No"]
         },
@@ -269,7 +283,7 @@
               "type": "string",
               "mode": "radio",
               "required": true,
-              "extraction_logic": "For THIS specific vehicle, determine whether it has a loan, finance, lien, or lease. ⚠️ APPLICATION FORM ONLY — DO NOT read or use the Quote document for this field (Quote does not list the lender; '#23a Lienholder Protection' is a coverage line, not a loan). In Application_Form Section 3 (Described Automobile), find 'Lienholder Name & Postal Address' and match THIS vehicle to its Auto No. (first vehicle = Auto No. 1, second = Auto No. 2, ...). If that Application row contains a finance company name and/or mailing address (e.g. '1. TD Auto Finance - PO Box 4086, Station A, Toronto, ON, M5W 5K3'), has_loan MUST be 'Yes'. Do NOT output has_loan='No' when that Application row is populated. Only output 'No' when the Application lienholder row for this Auto No. is blank/empty. IMPORTANT: If has_loan is 'No', omit type_of_interest, company_name, address, postal_code from this interest object.",
+              "extraction_logic": "For THIS specific vehicle, determine whether it has a loan, finance, lien, or lease. ⚠️ APPLICATION FORM ONLY — DO NOT read or use the Quote document for this field (Quote does not list the lender; '#23a Lienholder Protection' is a coverage line, not a loan). In Application_Form Section 3 (Described Automobile), find 'Lienholder Name & Postal Address' and match THIS vehicle to its Auto No. (first vehicle = Auto No. 1, second = Auto No. 2, ...). If that Application row contains a finance company name and/or mailing address (e.g. '1. TD Auto Finance - PO Box 4086, Station A, Toronto, ON, M5W 5K3'), has_loan MUST be 'Yes'. Do NOT output has_loan='No' when that Application row is populated. Only output 'No' when the Application lienholder row for this Auto No. is blank/empty. IMPORTANT: If has_loan is 'No', omit type_of_interest, company_name, unit_number, address, postal_code from this interest object.",
               "description": "Whether this vehicle has a loan or interest or finance or lease (Yes when Application lienholder row is filled)",
               "options": ["Yes", "No"]
             },
@@ -289,12 +303,19 @@
               "description": "Company name from corporate list",
               "options": ["Acura Financial Services", "Alphera Financial Services", "Audi Finance Services", "Bank of Montreal", "Banque Nationale Du Canada", "Banque Royal Prets Auto", "BMW Financial Services", "CIBC", "Edenpark", "FCA Canada Inc.", "Fédération des Caisses Desjardins du Québec", "Ford Credit Canada", "General Bank Of Canada", "Genesis Finance", "GM Financial", "Honda Finance Services", "Hyundai Motor Finance", "IA Financement Auto", "Kia Finance", "Lendcare Capital Inc.", "Libro Credit Union", "Lincoln Automotive Financial Services", "Manulife Bank Of Canada", "Mercedes-Benz Financial Services", "Mini Financial Services Canada", "Nissan Canada Inc.", "Porsche Financial Services Canada", "Royal Bank of Canada", "Scotia Dealer Advantage", "Services Financiers Mini Cooper", "TD Auto Finance", "Toyota Credit Canada", "Tricor Lease Finance Corp.", "Volkswagen Credit Canada Inc."]
             },
+            "unit_number": {
+              "type": "string",
+              "mode": "free_text",
+              "required": false,
+              "extraction_logic": "For THIS vehicle, extract unit / suite / apartment from the Application lienholder mailing address when printed (e.g. 'Suite 400', 'Unit 5', '#200'). Output the unit value only. Omit when has_loan is 'No' or no unit is shown. Do not put the full street address here — use interest.address for street/city/province.",
+              "description": "Unit/suite number for lienholder/lessor mailing address"
+            },
             "address": {
               "type": "string",
               "mode": "free_text",
               "required": true,
-              "extraction_logic": "For THIS vehicle, extract the complete lienholder/lessor mailing address from the Application ONLY — the 'Lienholder Name & Postal Address' row for this Auto No. Capture the FULL address exactly as shown after the company name. Formats vary: PO Box, street address, station, suite, city, province (e.g. 'PO Box 4086, Station A, Toronto, ON' or '123 Main St, Suite 400, Calgary, AB'). Do NOT use Quote/MVR/Autoplus for this field. Do NOT include the company name. Do NOT include the postal code here (use interest.postal_code). Only include this field if has_loan is 'Yes'.",
-              "description": "Full postal address of the lienholder/lessor (without postal code)"
+              "extraction_logic": "For THIS vehicle, extract the lienholder/lessor mailing address from the Application ONLY — the 'Lienholder Name & Postal Address' row for this Auto No. Capture street / PO Box / station / city / province after the company name, excluding unit_number when extracted separately (e.g. 'PO Box 4086, Station A, Toronto, ON' or '123 Main St, Calgary, AB'). Do NOT use Quote/MVR/Autoplus. Do NOT include company name or postal code. Only when has_loan is 'Yes'.",
+              "description": "Full postal address of the lienholder/lessor (without unit or postal code)"
             },
             "postal_code": {
               "type": "string",
@@ -471,7 +492,7 @@
           "type": "string",
           "mode": "radio",
           "required": true,
-          "extraction_logic": "Extract from documents for THIS specific driver. Set to 'Yes' if ONE OR MORE lapses appear in the AutoPlus / Application 'Lapses' section for this driver. If 'Yes', the parallel arrays `lapse_in_insurance_description`, `lapse_start`, `lapse_end` MUST also be included in the output, each with one entry per lapse (same length, same order).",
+          "extraction_logic": "Extract from documents for THIS specific driver. Set to 'Yes' if ONE OR MORE lapses appear in the AutoPlus / Application 'Lapses' section for this driver. If 'Yes', the parallel arrays `lapse_in_insurance_description`, `lapse_start`, `lapse_end` MUST also be included in the output, each with one entry per lapse (same length, same order). When any lapse description is 'Non-Payment', also include driver-level `non_payment_company` (outside the lapse arrays) — the insurance company tied to that Non-Payment lapse.",
           "description": "Whether there is a lapse in insurance for THIS specific driver",
           "options": ["Yes", "No"]
         },
@@ -496,6 +517,13 @@
           "required": false,
           "extraction_logic": "Only extract when 'lapse_in_insurance' is 'Yes'. ⚠️ ALWAYS OUTPUT AS A JSON ARRAY of YYYY-MM-DD strings, one element per lapse, aligned by index with `lapse_in_insurance_description` and `lapse_start`. Map each element from the Lapses section 'Re-Instate Date' (lapse end) field for that specific lapse on THIS driver. If a lapse has no Re-Instate Date printed (e.g. 'No Automobile' lapse covering the gap up to the policy effective date), output null at that index — keep the array length aligned. Do NOT mix multiple lapse ends into one string.",
           "description": "Lapse end date(s) for THIS specific driver — array of YYYY-MM-DD strings (or null per element when missing), one per lapse, aligned with lapse_in_insurance_description / lapse_start by index"
+        },
+        "non_payment_company": {
+          "type": "string",
+          "mode": "free_text",
+          "required": false,
+          "extraction_logic": "ONLY when lapse_in_insurance is 'Yes' AND at least one lapse_in_insurance_description element is 'Non-Payment'. This is a driver-level follow-up OUTSIDE the lapse arrays (not inside lapse_start/lapse_end/description): the insurance company associated with the Non-Payment lapse — the carrier that cancelled or lapsed the policy for non-payment. Extract from the Lapses section on Quote / AutoPlus / Application (company name column, insurer name on the lapse row, or text such as 'Cancelled by {Insurer}'). Omit entirely when there is no Non-Payment lapse.",
+          "description": "Insurance company for Non-Payment lapse (driver-level field outside lapse arrays)"
         },
         "insured_without_interruption_since": {
           "type": "string",
@@ -537,8 +565,8 @@
           "type": "number",
           "mode": "free_text",
           "required": true,
-          "extraction_logic": "Calculate the number of years for THIS specific driver by subtracting the previous insurance effective date from the expiry_date. Use rounding up (ceiling) - if it's more than 3 years even by one day, it counts as 4 years. The result must be an integer. For example: if effective date is 2020-01-01 and expiry date is 2023-01-02, that's 3 years and 1 day, which rounds up to 4 years.",
-          "description": "Number of years with previous insurer (calculated, rounded up to integer) for THIS specific driver"
+          "extraction_logic": "Calculate for THIS specific driver: number_of_years_with_previous_insurer = full years from insured_without_interruption_since (previous-policy start / Date Insured) to expiry_date (previous-policy end). Use floor logic — partial years do NOT count. The end date must be strictly AFTER the anniversary to count that year: 2024-01-02 to 2025-01-02 = 0 years; 2024-01-02 to 2025-01-03 = 1 year. Less than one year and even one extra day short of the next anniversary still floors to the lower integer. Output a non-negative integer.",
+          "description": "Number of years with previous insurer (floored full years from insured_without_interruption_since to expiry_date) for THIS specific driver"
         }
       }
     },
