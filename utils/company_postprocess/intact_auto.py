@@ -1,6 +1,8 @@
 import re
 import json
-from typing import Dict, Optional
+from functools import lru_cache
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime, date
 from urllib import parse, request
 
@@ -2266,6 +2268,244 @@ def _promote_lapse_fields_to_arrays(driver: Dict) -> None:
             driver[key] = arr
 
 
+def _parse_loose_date_token(token: str) -> Optional[date]:
+    if not isinstance(token, str):
+        return None
+    text = token.strip().rstrip(".,;")
+    if not text:
+        return None
+    for fmt in (
+        "%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m-%d-%Y",
+        "%d-%m-%Y", "%d/%m/%Y", "%d/%m/%Y",
+    ):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+_LOOSE_DATE_TOKEN = re.compile(
+    r"\b(\d{4}[-/]\d{2}[-/]\d{2}|\d{2}[-/]\d{2}[-/]\d{4}|\d{1,2}/\d{1,2}/\d{4})\b"
+)
+
+_INSURER_ALIASES = {
+    "intact": "Intact Insurance",
+    "aviva": "Aviva Insurance Company of Canada",
+    "economical": "Economical Mutual Insurance Company",
+    "wawanesa": "Wawanesa Mutual Insurance Company",
+    "co-operators": "Co-operators General Insurance Company",
+    "cooperators": "Co-operators General Insurance Company",
+    "desjardins": "Desjardins Insurance",
+    "belairdirect": "Belairdirect",
+    "belair": "Belairdirect",
+    "state farm": "State Farm Mutual Automobile Insurance Company",
+    "td insurance": "TD General Insurance Company",
+    "td home and auto": "TD Home and Auto Insurance Company",
+    "travelers": "Travelers",
+    "sonnet": "Sonnet Insurance Company",
+    "pembridge": "Pembridge Insurance Company",
+    "pafco": "Pafco Insurance Company",
+    "rbc": "RBC General Insurance Company",
+    "bmo": "Bank of Montreal",
+}
+
+
+@lru_cache(maxsize=1)
+def _get_previous_insurer_options() -> Tuple[str, ...]:
+    config_path = Path(__file__).resolve().parents[2] / "config" / "intact_auto_fields_config.json"
+    with open(config_path, encoding="utf-8") as handle:
+        cfg = json.load(handle)
+    opts = (
+        cfg.get("fields", {})
+        .get("driver", {})
+        .get("fields", {})
+        .get("previous_insurer", {})
+        .get("options", [])
+    )
+    return tuple(opts)
+
+
+def _match_previous_insurer_name(raw) -> Optional[str]:
+    """Map free-text / abbreviated insurer name to previous_insurer dropdown label."""
+    if _is_missing(raw):
+        return None
+    text = str(raw).strip()
+    text_lower = text.lower()
+    options = _get_previous_insurer_options()
+
+    for opt in options:
+        if text_lower == opt.lower():
+            return opt
+
+    alias = _INSURER_ALIASES.get(text_lower)
+    if alias:
+        for opt in options:
+            if opt == alias:
+                return opt
+
+    skip = {
+        "other canada or u.s. insurer not on the list",
+        "outside of canada or u.s.",
+        "no prior insurer",
+    }
+    for opt in sorted(options, key=len, reverse=True):
+        if opt.lower() in skip:
+            continue
+        if opt.lower() in text_lower:
+            return opt
+
+    for opt in sorted(options, key=len, reverse=True):
+        if opt.lower() in skip:
+            continue
+        if text_lower in opt.lower() and len(text_lower) >= 3:
+            return opt
+
+    return None
+
+
+def _dates_close(left: date, right: date, tolerance_days: int = 1) -> bool:
+    return abs((left - right).days) <= tolerance_days
+
+
+def _extract_dates_from_text(text: str) -> List[date]:
+    dates: List[date] = []
+    for match in _LOOSE_DATE_TOKEN.finditer(text or ""):
+        parsed = _parse_loose_date_token(match.group(1))
+        if parsed is not None:
+            dates.append(parsed)
+    return dates
+
+
+def _get_autoplus_texts(documents: Optional[Dict[str, str]]) -> List[str]:
+    if not isinstance(documents, dict):
+        return []
+    texts = []
+    for key, value in documents.items():
+        if not isinstance(value, str) or not value.strip():
+            continue
+        if "autoplus" in str(key).lower() or "autoplus" in value[:200].lower():
+            texts.append(value)
+    return texts
+
+
+def _extract_policy_records_by_insurer_scan(text: str) -> List[Dict]:
+    records: List[Dict] = []
+    skip = {
+        "other canada or u.s. insurer not on the list",
+        "outside of canada or u.s.",
+        "no prior insurer",
+    }
+    for opt in sorted(_get_previous_insurer_options(), key=len, reverse=True):
+        if opt.lower() in skip:
+            continue
+        for match in re.finditer(re.escape(opt), text, flags=re.IGNORECASE):
+            window = text[max(0, match.start() - 80): min(len(text), match.end() + 220)]
+            dates = _extract_dates_from_text(window)
+            if dates:
+                records.append({"company": opt, "end_date": max(dates)})
+    return records
+
+
+def _extract_policy_records_from_autoplus(text: str) -> List[Dict]:
+    """Parse insurance-history rows from AutoPlus text into {company, end_date}."""
+    if not isinstance(text, str) or not text.strip():
+        return []
+
+    records: List[Dict] = []
+    blocks = re.split(r"\n\s*\n", text)
+    end_label = re.compile(
+        r"(?:Expiry|Expiration|Cancel(?:lation)?|Term(?:ination)?|End)\s*(?:Date)?\s*[:\-]\s*"
+        r"(\d{4}[-/]\d{2}[-/]\d{2}|\d{2}[-/]\d{2}[-/]\d{4})",
+        flags=re.IGNORECASE,
+    )
+    company_label = re.compile(
+        r"(?:Insurance\s+Company|Insurer|Company)\s*[:\-]\s*(.+?)(?:\n|$)",
+        flags=re.IGNORECASE,
+    )
+
+    for block in blocks:
+        company = None
+        match_company = company_label.search(block)
+        if match_company:
+            company = match_company.group(1).strip()
+        end_date = None
+        match_end = end_label.search(block)
+        if match_end:
+            end_date = _parse_loose_date_token(match_end.group(1))
+        if end_date is None:
+            dates = _extract_dates_from_text(block)
+            if dates:
+                end_date = max(dates)
+        if company and end_date:
+            records.append({"company": company, "end_date": end_date})
+
+    if not records:
+        records = _extract_policy_records_by_insurer_scan(text)
+    return records
+
+
+def _find_company_by_lapse_start_in_autoplus(
+    documents: Optional[Dict[str, str]],
+    lapse_start: date,
+) -> Optional[str]:
+    for text in _get_autoplus_texts(documents):
+        for record in _extract_policy_records_from_autoplus(text):
+            end_date = record.get("end_date")
+            if isinstance(end_date, date) and _dates_close(end_date, lapse_start):
+                company = record.get("company")
+                if isinstance(company, str) and company.strip():
+                    return company.strip()
+    return None
+
+
+def _get_non_payment_lapse_start(driver: Dict, generator) -> Optional[date]:
+    descriptions = list(_lapse_descriptions_iter(driver.get("lapse_in_insurance_description")))
+    starts = driver.get("lapse_start")
+    if not isinstance(starts, list):
+        starts = [starts] if not _is_missing(starts) else []
+    for idx, desc in enumerate(descriptions):
+        if isinstance(desc, str) and desc.strip().lower() == "non-payment":
+            if idx < len(starts):
+                parsed = _parse_date_text(_to_full_date(generator, starts[idx]))
+                if parsed is not None:
+                    return parsed
+    return None
+
+
+def _apply_non_payment_company(
+    driver: Dict,
+    generator,
+    documents: Optional[Dict[str, str]] = None,
+) -> None:
+    """Resolve non_payment_company from AutoPlus (by lapse_start) and fuzzy-match dropdown."""
+    if not isinstance(driver, dict):
+        return
+    if not _driver_has_non_payment_lapse(driver):
+        driver.pop("non_payment_company", None)
+        return
+
+    matched = None
+    lapse_start = _get_non_payment_lapse_start(driver, generator)
+    if lapse_start is not None and documents:
+        raw_company = _find_company_by_lapse_start_in_autoplus(documents, lapse_start)
+        if raw_company:
+            matched = _match_previous_insurer_name(raw_company)
+            if matched:
+                print(
+                    f"[INFO] Matched non_payment_company from AutoPlus "
+                    f"(lapse_start={lapse_start.isoformat()}): {matched}"
+                )
+
+    if not matched:
+        matched = _match_previous_insurer_name(driver.get("non_payment_company"))
+
+    if matched:
+        driver["non_payment_company"] = matched
+    else:
+        driver.pop("non_payment_company", None)
+
+
 def _driver_has_non_payment_lapse(driver: Dict) -> bool:
     if not isinstance(driver, dict) or driver.get("lapse_in_insurance") != "Yes":
         return False
@@ -2273,14 +2513,6 @@ def _driver_has_non_payment_lapse(driver: Dict) -> bool:
         if isinstance(desc, str) and desc.strip().lower() == "non-payment":
             return True
     return False
-
-
-def _normalize_non_payment_company(driver: Dict) -> None:
-    """Keep non_payment_company only when a Non-Payment lapse exists."""
-    if not isinstance(driver, dict):
-        return
-    if not _driver_has_non_payment_lapse(driver):
-        driver.pop("non_payment_company", None)
 
 
 def _lapse_descriptions_iter(value):
@@ -2687,7 +2919,7 @@ def _apply_intact_defaults(generator, data: Dict, documents: Optional[Dict[str, 
                 _promote_lapse_fields_to_arrays(driver)
                 _strip_empty_trailing_lapses(driver)
 
-            _normalize_non_payment_company(driver)
+            _apply_non_payment_company(driver, generator, documents)
 
             has_no_auto_lapse = any(
                 isinstance(desc, str) and desc.strip().lower() == "no automobile"

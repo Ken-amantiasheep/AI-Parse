@@ -520,10 +520,11 @@
         },
         "non_payment_company": {
           "type": "string",
-          "mode": "free_text",
+          "mode": "dropdown",
           "required": false,
-          "extraction_logic": "ONLY when lapse_in_insurance is 'Yes' AND at least one lapse_in_insurance_description element is 'Non-Payment'. This is a driver-level follow-up OUTSIDE the lapse arrays (not inside lapse_start/lapse_end/description): the insurance company associated with the Non-Payment lapse — the carrier that cancelled or lapsed the policy for non-payment. Extract from the Lapses section on Quote / AutoPlus / Application (company name column, insurer name on the lapse row, or text such as 'Cancelled by {Insurer}'). Omit entirely when there is no Non-Payment lapse.",
-          "description": "Insurance company for Non-Payment lapse (driver-level field outside lapse arrays)"
+          "options_ref": "previous_insurer",
+          "extraction_logic": "ONLY when lapse_in_insurance is 'Yes' AND at least one lapse_in_insurance_description element is 'Non-Payment'. Driver-level follow-up OUTSIDE the lapse arrays. SOURCE (priority): AutoPlus insurance-history — the Non-Payment lapse_start date is usually the END/EXPIRY date of the cancelled policy; find that policy row in AutoPlus and take its Insurance Company. Then fuzzy-match to the dropdown (same insurer list as previous_insurer / ICE fld_previousInsurerRefusedAutoInsurer1): exact label first, then case-insensitive, then abbreviation (e.g. 'Intact' → 'Intact Insurance', 'Aviva' → 'Aviva Insurance Company of Canada'). If Canadian/U.S. but not in list → 'Other Canada or U.S. Insurer not on the list'; if outside Canada/U.S. → 'Outside of Canada or U.S.'. Omit when no Non-Payment lapse.",
+          "description": "Insurance company for Non-Payment lapse (dropdown — same options as previous_insurer)"
         },
         "insured_without_interruption_since": {
           "type": "string",

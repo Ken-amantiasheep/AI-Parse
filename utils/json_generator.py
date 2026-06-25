@@ -178,7 +178,9 @@ class IntactJSONGenerator:
                     sections.append("   Common fields (always include):")
                     for field_name, field_info in common_fields.items():
                         if isinstance(field_info, dict):
-                            self._append_config_field_prompt(sections, field_name, field_info, 1)
+                            self._append_config_field_prompt(
+                                sections, field_name, field_info, 1, common_fields
+                            )
                 for risk_type_name, risk_type_cfg in fields_by_risk_type.items():
                     sections.append(f"   Template for {selector_field} = {risk_type_name}:")
                     if isinstance(risk_type_cfg, dict) and risk_type_cfg.get("description"):
@@ -191,7 +193,9 @@ class IntactJSONGenerator:
                     if isinstance(type_fields, dict):
                         for field_name, field_info in type_fields.items():
                             if isinstance(field_info, dict):
-                                self._append_config_field_prompt(sections, field_name, field_info, 1)
+                                self._append_config_field_prompt(
+                                    sections, field_name, field_info, 1, type_fields
+                                )
                 sections.append("")  # Empty line between sections
                 section_num += 1
                 continue
@@ -208,17 +212,33 @@ class IntactJSONGenerator:
                 self._append_config_field_prompt(sections, section_name, leaf_info, 0)
             # Add fields (recurses into nested objects such as risk.interest)
             elif "fields" in section_data:
-                for field_name, field_info in section_data["fields"].items():
+                section_fields = section_data["fields"]
+                for field_name, field_info in section_fields.items():
                     if isinstance(field_info, dict):
-                        self._append_config_field_prompt(sections, field_name, field_info, 0)
+                        self._append_config_field_prompt(
+                            sections, field_name, field_info, 0, section_fields
+                        )
             
             sections.append("")  # Empty line between sections
             section_num += 1
         
         return "\n".join(sections)
 
+    def _resolve_field_options(self, field_info: Dict, parent_fields: Optional[Dict] = None):
+        """Return dropdown/radio options, following options_ref to a sibling field when set."""
+        options = list(field_info.get("options") or [])
+        if options:
+            return options
+        options_ref = field_info.get("options_ref")
+        if options_ref and isinstance(parent_fields, dict):
+            ref_field = parent_fields.get(options_ref)
+            if isinstance(ref_field, dict):
+                return list(ref_field.get("options") or [])
+        return options
+
     def _append_config_field_prompt(
-        self, sections: List[str], field_name: str, field_info: Dict, depth: int = 0
+        self, sections: List[str], field_name: str, field_info: Dict, depth: int = 0,
+        parent_fields: Optional[Dict] = None,
     ) -> None:
         """Append prompt lines for one field from fields_config, recursing into nested `fields` objects."""
         nested = field_info.get("fields") if isinstance(field_info, dict) else None
@@ -236,7 +256,9 @@ class IntactJSONGenerator:
                 sections.append(f"{cont_pad}→ EXTRACTION LOGIC: {field_info['extraction_logic']}")
             for sub_name, sub_info in nested.items():
                 if isinstance(sub_info, dict):
-                    self._append_config_field_prompt(sections, sub_name, sub_info, depth + 1)
+                    self._append_config_field_prompt(
+                        sections, sub_name, sub_info, depth + 1, nested
+                    )
             return
 
         bullet_pad = "   " + "  " * depth
@@ -258,7 +280,7 @@ class IntactJSONGenerator:
 
         if field_mode == "dropdown":
             options_by_risk_type = field_info.get("options_by_risk_type", {})
-            options = field_info.get("options", [])
+            options = self._resolve_field_options(field_info, parent_fields)
             if options_by_risk_type:
                 by_type_parts = []
                 for rt, rt_options in options_by_risk_type.items():
@@ -274,7 +296,7 @@ class IntactJSONGenerator:
 
         if field_mode == "radio":
             options_by_risk_type = field_info.get("options_by_risk_type", {})
-            options = field_info.get("options", [])
+            options = self._resolve_field_options(field_info, parent_fields)
             if options_by_risk_type:
                 by_type_parts = []
                 for rt, rt_options in options_by_risk_type.items():

@@ -14,6 +14,7 @@ from utils.company_postprocess.intact_auto import (
     _build_mvr_name_index,
     _compute_years_with_previous_insurer,
     _extract_lienholders_by_auto_no,
+    _match_previous_insurer_name,
     _normalize_intact_applicant_information,
     _parse_mvr_name,
     _parse_vertical_usage_block,
@@ -1509,6 +1510,59 @@ def test_intact_auto_non_payment_company_removed_without_non_payment_lapse():
     cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
 
     assert "non_payment_company" not in cleaned["driver"][0]
+
+
+def test_match_previous_insurer_name_fuzzy_intact():
+    assert _match_previous_insurer_name("Intact") == "Intact Insurance"
+    assert _match_previous_insurer_name("intact insurance") == "Intact Insurance"
+    assert _match_previous_insurer_name("Aviva") == "Aviva Insurance Company of Canada"
+
+
+def test_intact_auto_non_payment_company_from_autoplus_by_lapse_start():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    documents = {
+        "Autoplus_1": """
+Report Date: 2026-04-10
+Insurance History
+Insurance Company: Intact Insurance
+Policy Number: 01884845
+Effective Date: 2023-01-25
+Expiry Date: 2024-01-24
+""",
+    }
+    data = {
+        "driver": [
+            {
+                "lapse_in_insurance": "Yes",
+                "lapse_in_insurance_description": ["Non-Payment"],
+                "lapse_start": ["2024-01-24"],
+                "lapse_end": ["2026-06-10"],
+            }
+        ],
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents=documents)
+
+    assert cleaned["driver"][0]["non_payment_company"] == "Intact Insurance"
+
+
+def test_intact_auto_non_payment_company_fuzzy_matches_llm_output():
+    generator = _make_generator("Intact_Auto", fields_config={"fields": {}})
+    data = {
+        "driver": [
+            {
+                "lapse_in_insurance": "Yes",
+                "lapse_in_insurance_description": ["Non-Payment"],
+                "lapse_start": ["2024-01-24"],
+                "lapse_end": ["2026-06-10"],
+                "non_payment_company": "Intact",
+            }
+        ],
+    }
+
+    cleaned = generator._validate_and_clean_json(copy.deepcopy(data), documents={})
+
+    assert cleaned["driver"][0]["non_payment_company"] == "Intact Insurance"
 
 
 def test_intact_applicant_syncs_unit_number_to_second_applicant():
